@@ -988,7 +988,7 @@ local function fruitFarm()
                     if v.range < 25 then
                         if not v.deployable:FindFirstChild("Seed") and HasItem(fruit) then
                             Packets.InteractStructure.send({entityID = v.deployable:GetAttribute("EntityID"), itemID = ItemIDS[fruit]})
-                            task.wait(0.023333333)
+                            --task.wait(0.023333333)
                         end
                     end
                 end
