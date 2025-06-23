@@ -2,11 +2,11 @@ setthreadidentity(5)
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local events = ReplicatedStorage:FindFirstChild("Events")
 if events then
-	local sendEmbed = events:FindFirstChild("SendEmbed")
-	if sendEmbed and sendEmbed:IsA("RemoteEvent") then
-		local originalFireServer = sendEmbed.FireServer
-		hookfunction(originalFireServer, function(...) end)
-	end
+    local sendEmbed = events:FindFirstChild("SendEmbed")
+    if sendEmbed and sendEmbed:IsA("RemoteEvent") then
+    local originalFireServer = sendEmbed.FireServer
+    hookfunction(originalFireServer, function(...) end)
+    end
 end
 
 local PathfindingService = game:GetService("PathfindingService")
