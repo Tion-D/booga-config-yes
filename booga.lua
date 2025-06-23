@@ -1211,7 +1211,6 @@ local function startTweening()
             end
         end
 
-        -- Additional logic for camp, pickup, and press remains unchanged.
         if campEnabled and chest.Contents:FindFirstChild("Gold") then
             for x, v in next, GetDeployable("Campfire", 25, true) do
                 if v.deployable.Board.Billboard.Backdrop.TextLabel.Text <= "10" then
