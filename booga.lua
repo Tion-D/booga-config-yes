@@ -23,7 +23,7 @@ local GameUtil = require(ReplicatedStorage.Modules.GameUtil)
 local ItemData = require(ReplicatedStorage.Modules.ItemData)
 local ItemIDS = require(ReplicatedStorage.Modules.ItemIDS)
 local Packets = require(ReplicatedStorage.Modules.Packets)
-local SkinHandler = require(game:GetService("Players").LocalPlayer.PlayerScripts.src.Game.SkinHandler)
+--local SkinHandler = require(game:GetService("Players").LocalPlayer.PlayerScripts.src.Game.SkinHandler)
 
 local Character = Players.LocalPlayer.Character or Players.LocalPlayer.CharacterAdded:Wait()
 local LocalPlayer = game.Players.LocalPlayer
