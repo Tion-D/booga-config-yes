@@ -69,6 +69,7 @@ local tweenEnabled
 local tween
 local tweenInfo
 local chest
+local tweenConn
 
 local moving = false
 local fruit = "Bloodfruit"
@@ -1166,7 +1167,6 @@ local function startTweening()
         Humanoid = Character:WaitForChild("Humanoid")
         Root = Character:WaitForChild("HumanoidRootPart")
     end
-
     if #positionList == 0 then
         Notify("Unable to start Tweening. No positions available.")
         return
@@ -1175,68 +1175,75 @@ local function startTweening()
     while tweeningEnabled do
         for _, pos in ipairs(positionList) do
             if not tweeningEnabled then break end
-
-            if pos and pos.X and pos.Y and pos.Z then
-                local targetPos = Vector3.new(pos.X, pos.Y, pos.Z)
-                local duration = (Root.Position - targetPos).Magnitude / walkSpeed
-                local tweenInfo = TweenInfo.new(duration, Enum.EasingStyle.Linear)
-                local tween = TweenService:Create(Root, tweenInfo, {CFrame = CFrame.new(targetPos)})
-
-                local tweenFinished = false
-                local tweenConn = tween.Completed:Connect(function()
-                    tweenFinished = true
-                    tweenConn:Disconnect()
-                end)
-
-                tween:Play()
-                local startTime = tick()
-
-                while not tweenFinished and tick() - startTime < 15 do
-                    task.wait(0.1)
-                end
-
-                if not tweenFinished then
-                    Notify("Tween from current position to target taking too long; restarting tween for this transition.")
-                    tween:Cancel()
-                    
-                    tween = TweenService:Create(Root, tweenInfo, {CFrame = CFrame.new(targetPos)})
-                    tween:Play()
-                    tween.Completed:Wait()
-                end
-
-                if not tweeningEnabled then break end
-                task.wait(0.1)
-            else
+            if not (pos and pos.X and pos.Y and pos.Z) then
                 Notify("Invalid position data.")
+                continue
             end
+
+            local targetPos = Vector3.new(pos.X, pos.Y, pos.Z)
+            local duration = (Root.Position - targetPos).Magnitude / walkSpeed
+            local ti = TweenInfo.new(duration, Enum.EasingStyle.Linear)
+
+            if tweenConn then tweenConn:Disconnect(); tweenConn = nil end
+            if tween then tween:Cancel() end
+
+            tweenInfo = { MaxSpeed = Humanoid.WalkSpeed, CFrame = CFrame.new(targetPos) }
+            tween = TweenService:Create(Root, ti, { CFrame = CFrame.new(targetPos) })
+
+            local tweenFinished = false
+            tweenConn = tween.Completed:Connect(function()
+                tweenFinished = true
+                if tweenConn then tweenConn:Disconnect(); tweenConn = nil end
+            end)
+
+            tween:Play()
+            local startTime = tick()
+
+            while not tweenFinished and tick() - startTime < 15 do
+                task.wait(0.1)
+            end
+
+            if not tweenFinished then
+                Notify("Tween taking too long; restarting.")
+                if tweenConn then tweenConn:Disconnect(); tweenConn = nil end
+                tween:Cancel()
+                tween = TweenService:Create(Root, ti, { CFrame = CFrame.new(targetPos) })
+                tweenFinished = false
+                tweenConn = tween.Completed:Connect(function()
+                    tweenFinished = true
+                    if tweenConn then tweenConn:Disconnect(); tweenConn = nil end
+                end)
+                tween:Play()
+                tween.Completed:Wait()
+            end
+
+            if not tweeningEnabled then break end
+            task.wait(0.1)
         end
 
-        if campEnabled and chest.Contents:FindFirstChild("Gold") then
-            for x, v in next, GetDeployable("Campfire", 25, true) do
+        if campEnabled and chest and chest.Contents:FindFirstChild("Gold") then
+            for _, v in next, GetDeployable("Campfire", 25, true) do
                 if v.deployable.Board.Billboard.Backdrop.TextLabel.Text <= "10" then
                     local itemID = GetFuel()
                     if itemID then
-                        Packets.InteractStructure.send({
-                            entityID = v.deployable:GetAttribute("EntityID"),
-                            itemID = itemID
-                        })
+                        Packets.InteractStructure.send({ entityID = v.deployable:GetAttribute("EntityID"), itemID = itemID })
                     end
                 end
             end
         end
 
-        if pickUpGoldEnabled and chest.Contents:FindFirstChild("Gold") then
-            for x, v in next, chest.Contents:GetChildren() do
+        if pickUpGoldEnabled and chest then
+            for _, v in next, chest.Contents:GetChildren() do
                 if v.Name == "Gold" then
                     Packets.Pickup.send(v:GetAttribute("EntityID"))
                 end
             end
         end
 
-        if pressEnabled and chest.Contents:FindFirstChild("Gold") then
+        if pressEnabled and chest then
             local deployable = GetDeployable("Coin Press", 25)
             if deployable then
-                for x, v in next, chest.Contents:GetChildren() do
+                for _, v in next, chest.Contents:GetChildren() do
                     if v.Name == "Gold" then
                         Packets.Pickup.send(v:GetAttribute("EntityID"))
                         Packets.InteractStructure.send({
@@ -1249,8 +1256,10 @@ local function startTweening()
             end
         end
     end
-end
 
+    if tweenConn then tweenConn:Disconnect(); tweenConn = nil end
+    if tween then tween:Cancel(); tween = nil end
+end
 
 local function autoJump()
     while autoJumpEnabled do
