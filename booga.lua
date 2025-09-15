@@ -259,7 +259,7 @@ end
 
 
 local function findFruitIndex(fruitName)
-    for index, data in next, GameUtil.GetData().inventory do
+    for index, data in next, GameUtil.getData().inventory do
         if data.name == fruitName then
             return index
         end
@@ -488,7 +488,7 @@ local function GetDeployable(name, range, multiple)
 end
 
 local function findBloodfruitIndex()
-    for index, data in next, GameUtil.GetData().inventory do
+    for index, data in next, GameUtil.getData().inventory do
         if data.name == "Bloodfruit" then
             return index
         end
@@ -1108,6 +1108,7 @@ local function interactWithNearbyResources(radius)
     for _, resource in ipairs(Workspace.Resources:GetChildren()) do
         local distance = (Character:GetPivot().Position - resource:GetPivot().Position).Magnitude
         if distance <= radius then
+            --table.insert(nearbyEntities, resource)
             table.insert(nearbyEntities, resource:GetAttribute("EntityID"))
         end
     end
@@ -1546,7 +1547,7 @@ end
 
 
 local function findItemIndexByName(itemName)
-    for index, data in next, GameUtil.GetData().inventory do
+    for index, data in next, GameUtil.getData().inventory do
         if data.name == itemName then
             return index
         end
