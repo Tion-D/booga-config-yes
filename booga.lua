@@ -117,8 +117,8 @@ local BASE_ICE_CUBES = 3
 
 local POTION_RECIPES = {
     ["Poison"] = { ["Prickly Pear"] = 3, ["Magnetite Bar"] = 1 },
-    ["Swift"] = { ["Crystal"] = 1, ["Cloudberry"] = 3 },
-    ["Slowness"] = { ["Crystal"] = 1, ["Ice Cube"] = 3 },
+    ["Swift"] = { ["Crystal Chunk"] = 1, ["Cloudberry"] = 3 },
+    ["Slowness"] = { ["Crystal Chunk"] = 1, ["Ice Cube"] = 3 },
     ["Instant Damage"] = { ["Adurite Bar"] = 3, ["Prickly Pear"] = 3 },
     ["Fire Resistance"] = { ["Fire Hide"] = 2 },
     ["Strength"] = { ["Adurite"] = 2, ["Bloodfruit"] = 2 },
