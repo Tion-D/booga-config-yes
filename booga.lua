@@ -1108,7 +1108,6 @@ local function interactWithNearbyResources(radius)
     for _, resource in ipairs(Workspace.Resources:GetChildren()) do
         local distance = (Character:GetPivot().Position - resource:GetPivot().Position).Magnitude
         if distance <= radius then
-            --table.insert(nearbyEntities, resource)
             table.insert(nearbyEntities, resource:GetAttribute("EntityID"))
         end
     end
@@ -1147,16 +1146,14 @@ local function startWalking()
                 end)
 
                 local startTime = tick()
-                -- Poll until the movement is finished or 15 seconds elapse.
                 while not moveFinished and tick() - startTime < 15 do
                     task.wait(0.1)
                 end
 
                 if not moveFinished then
                     Notify("Walking to position taking too long; restarting move for this transition.")
-                    -- Restart the movement for the current target.
                     Humanoid:MoveTo(targetPos)
-                    Humanoid.MoveToFinished:Wait()  -- Wait until this restarted movement finishes.
+                    Humanoid.MoveToFinished:Wait()
                 end
 
                 if not walkingEnabled then break end
@@ -1166,7 +1163,6 @@ local function startWalking()
             end
         end
 
-        -- Additional logic for camp, pickup, press remains as needed...
         if campEnabled and chest.Contents:FindFirstChild("Gold") then
             for x, v in next, GetDeployable("Campfire", 25, true) do
                 if v.deployable.Board.Billboard.Backdrop.TextLabel.Text <= "10" then
