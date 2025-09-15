@@ -23,7 +23,7 @@ local GameUtil = require(ReplicatedStorage.Modules.GameUtil)
 local ItemData = require(ReplicatedStorage.Modules.ItemData)
 local ItemIDS = require(ReplicatedStorage.Modules.ItemIDS)
 local Packets = require(ReplicatedStorage.Modules.Packets)
---local SkinHandler = require(game:GetService("Players").LocalPlayer.PlayerScripts.src.Game.SkinHandler)
+local SkinHandler = require(ReplicatedStorage.Game.skins)
 
 local Character = Players.LocalPlayer.Character or Players.LocalPlayer.CharacterAdded:Wait()
 local LocalPlayer = game.Players.LocalPlayer
@@ -103,6 +103,29 @@ local pickupGoldTask = false
 local pickupRawGoldTask = false
 local pickupRawGold = false
 local replacePotEnabled = false
+local trackingActive = false
+local startAmounts, endAmounts = nil, nil
+
+local autoBrewEnabled = false
+local selectedPotion = "Healing"
+local cauldronRange = 100
+local currentCauldron = nil
+
+local autoBrewInFlight = {}
+local autoBrewQueue = {}
+local BASE_ICE_CUBES = 3
+
+local POTION_RECIPES = {
+    ["Poison"] = { ["Prickly Pear"] = 3, ["Magnetite Bar"] = 1 },
+    ["Swift"] = { ["Crystal"] = 1, ["Cloudberry"] = 3 },
+    ["Slowness"] = { ["Crystal"] = 1, ["Ice Cube"] = 3 },
+    ["Instant Damage"] = { ["Adurite Bar"] = 3, ["Prickly Pear"] = 3 },
+    ["Fire Resistance"] = { ["Fire Hide"] = 2 },
+    ["Strength"] = { ["Adurite"] = 2, ["Bloodfruit"] = 2 },
+    ["Weakness"] = { ["Berries"] = 3, ["Coal"] = 2 },
+    ["Healing"] = { ["Bloodfruit"] = 5, ["Strawberry"] = 2 },
+    ["Haste"] = { ["Iron"] = 2, ["Lemon"] = 2 },
+}
 
 local defaultConfigUrl = "https://raw.githubusercontent.com/Tion-D/booga-config-yes/refs/heads/main/MidasConfig.txt"
 local defaultConfigFile = "MidasConfig.txt"
@@ -111,79 +134,82 @@ if not isfile(defaultConfigFile) then
     writefile(defaultConfigFile, configContent)
 end
 
-local make_8x8 = function()
-    if not character then
-        character = Players.LocalPlayer.Character or Players.LocalPlayer.CharacterAdded:Wait()
+local function make_8x8()
+    if not Character or not Character.Parent then
+        Character = Players.LocalPlayer.Character or Players.LocalPlayer.CharacterAdded:Wait()
     end
 
-    local start = character:GetPivot() * CFrame.new(0, -3, 0)
+    local start = Character:GetPivot() * CFrame.new(0, -3, 0)
 
     for i = -4, 4 do
         for n = -4, 4 do
             local pos = start * CFrame.new(6.3 * i, 0, 6.3 * n)
-
-            Packets.PlaceStructure.send({["buildingName"] = "Plant Box", ["vec"] = pos.Position, ["yrot"] = 90, ["isMobile"] = false})
+            Packets.PlaceStructure.send({
+                buildingName = "Plant Box",
+                vec = pos.Position,
+                yrot = 90,
+                isMobile = false
+            })
             task.wait(0.45)
         end
     end
 end
 
-local move_left = function()
+local function move_left()
     if moving then return end
     moving = true
 
-    if not character then
-        character = Players.LocalPlayer.Character or Players.LocalPlayer.CharacterAdded:Wait()
+    if not Character or not Character.Parent then
+        Character = Players.LocalPlayer.Character or Players.LocalPlayer.CharacterAdded:Wait()
     end
+    local hum = Character:FindFirstChildOfClass("Humanoid") or Character:WaitForChild("Humanoid")
 
-    local hum = character:FindFirstChildOfClass("Humanoid")
-    hum:MoveTo((character:GetPivot() * CFrame.new(-(6.4 * 9), -3, 0)).Position)
+    hum:MoveTo((Character:GetPivot() * CFrame.new(-(6.4 * 9), -3, 0)).Position)
     hum.MoveToFinished:Wait()
 
     moving = false
 end
 
-local move_right = function()
+local function move_right()
     if moving then return end
     moving = true
 
-    if not character then
-        character = Players.LocalPlayer.Character or Players.LocalPlayer.CharacterAdded:Wait()
+    if not Character or not Character.Parent then
+        Character = Players.LocalPlayer.Character or Players.LocalPlayer.CharacterAdded:Wait()
     end
+    local hum = Character:FindFirstChildOfClass("Humanoid") or Character:WaitForChild("Humanoid")
 
-    local hum = character:FindFirstChildOfClass("Humanoid")
-    hum:MoveTo((character:GetPivot() * CFrame.new((6.4 * 9), -3, 0)).Position)
+    hum:MoveTo((Character:GetPivot() * CFrame.new((6.4 * 9), -3, 0)).Position)
     hum.MoveToFinished:Wait()
 
     moving = false
 end
 
-local move_up = function()
+local function move_up()
     if moving then return end
     moving = true
 
-    if not character then
-        character = Players.LocalPlayer.Character or Players.LocalPlayer.CharacterAdded:Wait()
+    if not Character or not Character.Parent then
+        Character = Players.LocalPlayer.Character or Players.LocalPlayer.CharacterAdded:Wait()
     end
+    local hum = Character:FindFirstChildOfClass("Humanoid") or Character:WaitForChild("Humanoid")
 
-    local hum = character:FindFirstChildOfClass("Humanoid")
-    hum:MoveTo((character:GetPivot() * CFrame.new(0, -3, -(6.4 * 9))).Position)
+    hum:MoveTo((Character:GetPivot() * CFrame.new(0, -3, -(6.4 * 9))).Position)
     hum.MoveToFinished:Wait()
 
     moving = false
 end
 
-local move_down = function()
+local function move_down()
     if moving then return end
     moving = true
 
-    if not character then
-        character = Players.LocalPlayer.Character or Players.LocalPlayer.CharacterAdded:Wait()
+    if not Character or not Character.Parent then
+        Character = Players.LocalPlayer.Character or Players.LocalPlayer.CharacterAdded:Wait()
     end
+    local hum = Character:FindFirstChildOfClass("Humanoid") or Character:WaitForChild("Humanoid")
 
-    local hum = character:FindFirstChildOfClass("Humanoid")
-    hum:MoveTo((character:GetPivot() * CFrame.new(0, -3, (6.4 * 9))).Position)
-    hum:MoveTo(character:GetPivot().Position + Vector3.new(0, -3, 6.4 * 9))
+    hum:MoveTo((Character:GetPivot() * CFrame.new(0, -3, (6.4 * 9))).Position)
     hum.MoveToFinished:Wait()
 
     moving = false
@@ -224,12 +250,13 @@ for x, v in next, ItemData do
 end
 
 local function Notify(title, content)
-    Fluent:Notify({
-        Title = title,
-        Content = content,
-        Duration = 5
-    })
+    if not Fluent or not Fluent.Notify then
+        warn(("[Notify pending] %s: %s"):format(title, tostring(content)))
+        return
+    end
+    Fluent:Notify({ Title = title, Content = content, Duration = 5 })
 end
+
 
 local function findFruitIndex(fruitName)
     for index, data in next, GameUtil.GetData().inventory do
@@ -276,16 +303,18 @@ local function setWalkSpeed(enabled)
     end
 end
 
-local __newindex
-__newindex = hookmetamethod(game, '__newindex', function(self, index, value)
-    local humanoid = LocalPlayer.Character:FindFirstChildOfClass("Humanoid")
+local oldNewIndex
+oldNewIndex = hookmetamethod(game, "__newindex", function(self, idx, val)
     if not checkcaller() then
-        if WalkSpeedEnabled and humanoid and self == humanoid and index == 'WalkSpeed' then
-            value = WalkSpeedValue
+        local char = LocalPlayer.Character
+        local hum = char and char:FindFirstChildOfClass("Humanoid")
+        if WalkSpeedEnabled and hum and self == hum and idx == "WalkSpeed" then
+            val = WalkSpeedValue
         end
     end
-    return __newindex(self, index, value)
+    return oldNewIndex(self, idx, val)
 end)
+
 
 local function setMaxSlope(enabled)
     maxSlopeEnabled = enabled
@@ -419,22 +448,43 @@ local function monitorItems()
 end
 
 local function GetDeployable(name, range, multiple)
-    local deployable = multiple and {}
-    local range = range or math.huge
-    for x, v in next, Workspace.Deployables:GetChildren() do
-        if v.Name == name then
-            local Magnitude = (Root.Position - v:GetPivot().Position).Magnitude
-            if Magnitude < range then
-                if multiple then
-                    table.insert(deployable, {deployable = v, range = Magnitude})
-                else
-                    deployable = v
-                    range = Magnitude
+    local deployablesFolder = Workspace:FindFirstChild("Deployables")
+    if not deployablesFolder or not Root then
+        return multiple and {} or nil
+    end
+
+    range = tonumber(range) or math.huge
+
+    if multiple then
+        local results = {}
+        for _, v in ipairs(deployablesFolder:GetChildren()) do
+            if v.Name == name and v:IsA("Model") then
+                local ok, pivot = pcall(function() return v:GetPivot() end)
+                if ok and pivot then
+                    local dist = (Root.Position - pivot.Position).Magnitude
+                    if dist < range then
+                        table.insert(results, { deployable = v, range = dist })
+                    end
                 end
             end
         end
+        table.sort(results, function(a, b) return a.range < b.range end)
+        return results
+    else
+        local closest, closestDist = nil, range
+        for _, v in ipairs(deployablesFolder:GetChildren()) do
+            if v.Name == name and v:IsA("Model") then
+                local ok, pivot = pcall(function() return v:GetPivot() end)
+                if ok and pivot then
+                    local dist = (Root.Position - pivot.Position).Magnitude
+                    if dist < closestDist then
+                        closest, closestDist = v, dist
+                    end
+                end
+            end
+        end
+        return closest
     end
-    return deployable
 end
 
 local function findBloodfruitIndex()
@@ -499,13 +549,10 @@ end
 
 local function GetCrewmates()
     local critters = Workspace:FindFirstChild("Critters")
-    if not critters then
-        return {}
-    end
-
+    if not critters then return {} end
     local crewmates = {}
     for _, v in pairs(critters:GetChildren()) do
-        if v.Name == "Crewmate" or v.Name == "Captain" and v:IsA("Model") and v:FindFirstChild("HumanoidRootPart") then
+        if (v.Name == "Crewmate" or v.Name == "Captain") and v:IsA("Model") and v:FindFirstChild("HumanoidRootPart") then
             table.insert(crewmates, v)
         end
     end
@@ -1502,6 +1549,153 @@ local function autoFarmGoldPot()
 end
 
 
+local function findItemIndexByName(itemName)
+    for index, data in next, GameUtil.GetData().inventory do
+        if data.name == itemName then
+            return index
+        end
+    end
+    return 0
+end
+
+local function ensureHasQuantity(name, want)
+    local have = tonumber((GetQuantity(name) or 0)) or 0
+    return have >= want, have
+end
+
+local function dropItemN(name, count)
+    for i = 1, count do
+        local idx = findItemIndexByName(name)
+        if idx == 0 then
+            return false, i - 1
+        end
+        Packets.DropBagItem.send(idx)
+        task.wait(0.3)
+    end
+    return true, count
+end
+
+local function getNearbyCauldrons()
+    local list = GetDeployable("Cauldron", cauldronRange, true) or {}
+    local out = {}
+    for _, rec in ipairs(list) do
+        table.insert(out, rec.deployable)
+    end
+    return out
+end
+
+local function queueForItem(itemName, cauldrons, countPerCauldron)
+    autoBrewQueue[itemName] = autoBrewQueue[itemName] or {}
+    for _, c in ipairs(cauldrons) do
+        for _ = 1, countPerCauldron do
+            table.insert(autoBrewQueue[itemName], c)
+        end
+    end
+end
+
+local function planDropsForCauldrons(recipeTable, cauldrons)
+    autoBrewInFlight = {}
+    autoBrewQueue = {}
+
+    autoBrewInFlight["Ice Cube"] = BASE_ICE_CUBES * #cauldrons
+    queueForItem("Ice Cube", cauldrons, BASE_ICE_CUBES)
+
+    for name, qty in pairs(recipeTable) do
+        autoBrewInFlight[name] = qty * #cauldrons
+        queueForItem(name, cauldrons, qty)
+    end
+end
+
+local function markInFlightItemsForTP(recipeTable)
+    autoBrewInFlight = {}
+    autoBrewInFlight["Ice Cube"] = (autoBrewInFlight["Ice Cube"] or 0) + BASE_ICE_CUBES
+    for name, qty in pairs(recipeTable) do
+        autoBrewInFlight[name] = (autoBrewInFlight[name] or 0) + qty
+    end
+end
+
+local function brewPotionOnce(potionName)
+    local cauldrons = getNearbyCauldrons()
+    if not cauldrons or #cauldrons == 0 then
+        Notify("Auto Brew", "No Cauldron within range (" .. tostring(cauldronRange) .. ").")
+        return false
+    end
+
+    local recipe = POTION_RECIPES[potionName]
+    if not recipe then
+        Notify("Auto Brew", "Unknown potion: " .. tostring(potionName))
+        return false
+    end
+
+    local maxSets = math.huge
+
+    local okIce, haveIce = ensureHasQuantity("Ice Cube", BASE_ICE_CUBES)
+    if not okIce then
+        Notify("Auto Brew", "Need 3× Ice Cube (have " .. tostring(haveIce) .. ").")
+        return false
+    end
+    maxSets = math.min(maxSets, math.floor((haveIce or 0) / BASE_ICE_CUBES))
+
+    for name, need in pairs(recipe) do
+        local haveOK, have = ensureHasQuantity(name, need)
+        if not haveOK then
+            Notify("Auto Brew", ("Missing %dx %s (have %d)."):format(need, name, have))
+            return false
+        end
+        maxSets = math.min(maxSets, math.floor((have or 0) / need))
+    end
+
+    if maxSets <= 0 then
+        Notify("Auto Brew", "Not enough ingredients for any set.")
+        return false
+    end
+
+    local setsToRun = math.min(#cauldrons, maxSets)
+    local activeCauldrons = {}
+    for i = 1, setsToRun do
+        table.insert(activeCauldrons, cauldrons[i])
+    end
+    currentCauldron = nil
+    local currentCauldrons = activeCauldrons
+
+    planDropsForCauldrons(recipe, activeCauldrons)
+
+    local function dropTotal(name, perSet)
+        return dropItemN(name, perSet * setsToRun)
+    end
+
+    local ok1 = dropTotal("Ice Cube", BASE_ICE_CUBES)
+    if not ok1 then
+        Notify("Auto Brew", "Failed to drop base Ice Cubes.")
+        return false
+    end
+
+    for name, qty in pairs(recipe) do
+        local ok2 = dropTotal(name, qty)
+        if not ok2 then
+            Notify("Auto Brew", "Failed to drop recipe item: " .. name)
+            return false
+        end
+    end
+
+    Notify("Auto Brew", ("Dropped ingredients for %s x%d cauldron(s)."):format(potionName, setsToRun))
+    return true
+end
+
+
+local function autoBrewLoop()
+    while autoBrewEnabled do
+        local started = brewPotionOnce(selectedPotion)
+        if not started then
+            autoBrewEnabled = false
+            Notify("Auto Brew", "Stopped (missing cauldron/ingredients).")
+            break
+        end
+        task.wait(2.0)
+    end
+end
+
+
 local Fluent = loadstring(game:HttpGet("https://github.com/dawid-scripts/Fluent/releases/latest/download/main.lua"))()
 local SaveManager = loadstring(game:HttpGet("https://raw.githubusercontent.com/dawid-scripts/Fluent/master/Addons/SaveManager.lua"))()
 local InterfaceManager = loadstring(game:HttpGet("https://raw.githubusercontent.com/dawid-scripts/Fluent/master/Addons/InterfaceManager.lua"))()
@@ -1985,7 +2179,7 @@ Tabs.GoldEXP:AddToggle("AutoWasteFood", {
     end
 })
 
-Tabs.PositionsTab.AddSection("PositionsTab")
+Tabs.PositionsTab:AddSection("PositionsTab")
 
 Tabs.PositionsTab:AddButton({
     Title = "Add Current Position",
@@ -2052,20 +2246,17 @@ Tabs.PositionsTab:AddToggle("TPGoldToChest", {
     Default = false,
     Callback = function(value)
         TPGoldToChest = value
-
-        if TPGoldToChest then
+        if value then
             chest = GetDeployable("Chest", 100, false)
-            if not nearestChest then
-                Library:Notify("No chest found within 100 studs.", 3, Color3.fromRGB(0, 255, 0))
+            if not chest then
+                Notify("No chest found within 100 studs.")
                 TPGoldToChest = false
             end
-        else
-            nearestChest = nil
         end
     end
 })
 
-Tabs.PositionsTab.AddSection("Settings")
+Tabs.PositionsTab:AddSection("Settings")
 
 Tabs.PositionsTab:AddInput("FileNameInput", {
     Title = "Save/Load Filename",
@@ -2116,6 +2307,55 @@ Tabs.PositionsTab:AddSlider("TweenSpeedSlider", {
 })
 
 Tabs.Extra:AddSection("Extra")
+
+Tabs.Extra:AddSection("Auto Brew Potions")
+
+Tabs.Extra:AddDropdown("PotionSelect", {
+    Title = "Select Potion",
+    Values = (function()
+        local names = {}
+        for k,_ in pairs(POTION_RECIPES) do table.insert(names, k) end
+        table.sort(names)
+        return names
+    end)(),
+    Default = selectedPotion,
+    Callback = function(value)
+        selectedPotion = value
+        Notify("Auto Brew", "Selected: " .. value)
+    end
+})
+
+Tabs.Extra:AddSlider("CauldronRange", {
+    Title = "Cauldron Range",
+    Min = 20, Max = 200, Default = cauldronRange, Rounding = 0,
+    Callback = function(v) cauldronRange = v end
+})
+
+Tabs.Extra:AddButton({
+    Title = "Brew Once",
+    Callback = function()
+        brewPotionOnce(selectedPotion)
+    end
+})
+
+Tabs.Extra:AddToggle("AutoBrew", {
+    Title = "Auto Brew",
+    Default = false,
+    Callback = function(value)
+        autoBrewEnabled = value
+        if value then
+            if #(getNearbyCauldrons()) == 0 then
+                autoBrewEnabled = false
+                Notify("Auto Brew", "No Cauldrons within range.")
+                return
+            end
+            task.spawn(autoBrewLoop)
+        else
+            Notify("Auto Brew", "Stopped.")
+        end
+    end
+})
+
 
 Tabs.Extra:AddToggle("PickupCoins", {
     Title = "Pickup Coins (stand next to coinpress)",
@@ -2290,6 +2530,55 @@ Tabs.Extra:AddButton({
         move_down()
     end
 })
+Tabs.Extra:AddSection("Auto Brew Potions")
+
+Tabs.Extra:AddDropdown("PotionSelect", {
+    Title = "Select Potion",
+    Values = (function()
+        local names = {}
+        for k,_ in pairs(POTION_RECIPES) do table.insert(names, k) end
+        table.sort(names)
+        return names
+    end)(),
+    Default = selectedPotion,
+    Callback = function(value)
+        selectedPotion = value
+        Notify("Auto Brew", "Selected: " .. value)
+    end
+})
+
+Tabs.Extra:AddSlider("CauldronRange", {
+    Title = "Cauldron Range",
+    Min = 20, Max = 200, Default = cauldronRange, Rounding = 0,
+    Callback = function(v) cauldronRange = v end
+})
+
+Tabs.Extra:AddButton({
+    Title = "Brew Once",
+    Callback = function()
+        brewPotionOnce(selectedPotion)
+    end
+})
+
+Tabs.Extra:AddToggle("AutoBrew", {
+    Title = "Auto Brew",
+    Default = false,
+    Callback = function(value)
+        autoBrewEnabled = value
+        if value then
+            currentCauldron = getNearbyCauldron()
+            if not currentCauldron then
+                autoBrewEnabled = false
+                Notify("Auto Brew", "No Cauldron within range.")
+                return
+            end
+            task.spawn(autoBrewLoop)
+        else
+            Notify("Auto Brew", "Stopped.")
+        end
+    end
+})
+
 
 SaveManager:SetLibrary(Fluent)
 InterfaceManager:SetLibrary(Fluent)
@@ -2333,6 +2622,26 @@ Workspace.Items.ChildAdded:Connect(function(item)
             Packets.Pickup.send(item:GetAttribute("EntityID"))
         until not item or item.Parent ~= workspace.Items
     end
+    if autoBrewEnabled and item and item.Parent == workspace.Items then
+        local q = autoBrewQueue[item.Name]
+        if q and #q > 0 then
+            local target = table.remove(q, 1)
+            local pos = target:GetPivot()
+            local tries = 0
+            repeat
+                Packets.ForceInteract.send(item:GetAttribute("EntityID"))
+                item:PivotTo(pos)
+                Packets.ForceInteract.send()
+                tries = tries + 1
+                task.wait()
+            until not item or item.Parent ~= workspace.Items or tries >= 10
+
+            if autoBrewInFlight[item.Name] then
+                autoBrewInFlight[item.Name] = math.max(0, autoBrewInFlight[item.Name] - 1)
+            end
+        end
+    end
+
 end)
 
 Workspace.Deployables.ChildRemoved:Connect(function(deployable)
