@@ -7,7 +7,7 @@ if events then
         local oldNamecall
         oldNamecall = hookmetamethod(game, "__namecall", function(self, ...)
             if not checkcaller() and getnamecallmethod() == "FireServer" and tostring(self) == "SendEmbed" then
-                return -- swallow it
+                return
             end
             return oldNamecall(self, ...)
         end)
