@@ -1622,11 +1622,12 @@ local function markInFlightItemsForTP(recipeTable)
 end
 
 local function _getCauldronParts(caul)
-    if not (caul and caul:IsA("Model")) then return nil, nil end
+    if not (caul and caul:IsA("Model")) then return nil, nil, nil end
     local base = caul:FindFirstChild("base")
     local liquid = caul:FindFirstChild("Liquid")
     if liquid and not liquid:IsA("BasePart") then liquid = nil end
-    return base, liquid
+    local hitbox = caul:FindFirstChild("Hitbox")
+    return base, liquid, hitbox
 end
 
 local function _iceCubeCount(caul)
@@ -1641,25 +1642,32 @@ local function _iceCubeCount(caul)
     return n
 end
 
-
 local function getCauldronState(caul)
-    local base, liquid = _getCauldronParts(caul)
+    local base, liquid, hitbox = _getCauldronParts(caul)
     if not liquid then return "missing" end
 
-    if base and _iceCubeCount(caul) > 0 then
-        return "melting"
+    local bubbling = hitbox and hitbox:FindFirstChild("Bubbling")
+    if bubbling and bubbling:IsA("Sound") then
+        if bubbling.IsPlaying or bubbling.Playing then
+            return "liquid"
+        end
+    end
+    local fx = hitbox and hitbox:FindFirstChildOfClass("ParticleEmitter")
+    if fx and fx.Enabled then
+        return "liquid"
     end
 
     local t = liquid.Transparency or 1
-    if math.abs(t - 0.25) <= 0.03 then
+    if t <= 0.35 then 
         return "liquid"
-    elseif t <= 0.02 then
+    elseif t >= 0.95 then
         return "empty"
-    else
-        return (t > 0.05) and "liquid" or "empty"
     end
+    if base and _iceCubeCount(caul) > 0 then
+        return "melting"
+    end
+    return "empty"
 end
-
 local function waitForLiquid(caul, timeout)
     timeout = timeout or 15
     local t0 = os.clock()
@@ -1731,7 +1739,7 @@ local function autoBrewLoop()
         if not brewPotionOnce(selectedPotion) then
             autoBrewEnabled = false
             Notify("Auto Brew", "Stopped (missing cauldron/ingredients).")
-            break
+            task.wait(2)
         end
         task.wait(2)
     end
@@ -2607,18 +2615,21 @@ Workspace.Items.ChildAdded:Connect(function(item)
             Packets.Pickup.send(item:GetAttribute("EntityID"))
         until not item or item.Parent ~= workspace.Items
     end
-    if autoBrewEnabled and item and item.Parent == workspace.Items then
+    
+    if (item and item.Parent == workspace.Items) and ((autoBrewQueue[item.Name] and #autoBrewQueue[item.Name] > 0) or autoBrewEnabled) then
         local q = autoBrewQueue[item.Name]
-        
         if q and #q > 0 then
             local target = table.remove(q, 1)
-            local pos = target:GetPivot()
+            local _, _, hitbox = _getCauldronParts(target)
+            local dropCFrame =
+                (hitbox and hitbox.CFrame)
+                or ((target:FindFirstChild("base") and target.base.CFrame) or target:GetPivot())
             local tries = 0
             repeat
                 Packets.ForceInteract.send(item:GetAttribute("EntityID"))
-                item:PivotTo(pos)
+                item:PivotTo(dropCFrame * CFrame.new(0, 1.25, 0))
                 Packets.ForceInteract.send()
-                tries = tries + 1
+                tries += 1
                 task.wait()
             until not item or item.Parent ~= workspace.Items or tries >= 10
 
@@ -2627,7 +2638,6 @@ Workspace.Items.ChildAdded:Connect(function(item)
             end
         end
     end
-
 end)
 
 Workspace.Deployables.ChildRemoved:Connect(function(deployable)
