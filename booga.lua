@@ -1046,7 +1046,16 @@ local function fruitFarm()
                         end
                     end
                 end
+                task.spawn(function()
+                    while true do
+                        if humanoid and humanoid.Parent then
+                            humanoid:ChangeState(Enum.HumanoidStateType.Jumping)
+                        end
+                        task.wait(1)
+                    end
+                end)
             end
+        
         else
             fruitRun:Set(false)
             warn("Couldn't find the root")
@@ -1668,6 +1677,7 @@ local function getCauldronState(caul)
     end
     return "empty"
 end
+
 local function waitForLiquid(caul, timeout)
     timeout = timeout or 15
     local t0 = os.clock()
@@ -1675,6 +1685,16 @@ local function waitForLiquid(caul, timeout)
         local state = getCauldronState(caul)
         if state == "liquid" then return true end
         task.wait(0.1)
+    until os.clock() - t0 > timeout
+    return false
+end
+
+local function waitUntilEmpty(caul, timeout)
+    timeout = timeout or 60
+    local t0 = os.clock()
+    repeat
+        if getCauldronState(caul) == "empty" then return true end
+        task.wait(0.25)
     until os.clock() - t0 > timeout
     return false
 end
@@ -1700,8 +1720,16 @@ local function brewPotionOnce(potionName)
         Notify("Auto Brew", "No Cauldron within range.")
         return false
     end
-    currentCauldron = cauldron
 
+    local state = getCauldronState(cauldron)
+    if state ~= "empty" then
+        return false
+    end
+
+    autoBrewQueue = {}
+    autoBrewInFlight = {}
+
+    currentCauldron = cauldron
     local recipe = POTION_RECIPES[potionName]
     if not recipe then
         Notify("Auto Brew", "Unknown potion: " .. tostring(potionName))
@@ -1734,14 +1762,25 @@ local function brewPotionOnce(potionName)
     return true
 end
 
+
 local function autoBrewLoop()
     while autoBrewEnabled do
-        if not brewPotionOnce(selectedPotion) then
-            autoBrewEnabled = false
-            Notify("Auto Brew", "Stopped (missing cauldron/ingredients).")
-            task.wait(2)
+        local cauldron = getNearbyCauldron()
+        if not cauldron then
+            Notify("Auto Brew", "No Cauldron within range.")
+            break
         end
-        task.wait(2)
+
+        if getCauldronState(cauldron) == "empty" then
+            local ok = brewPotionOnce(selectedPotion)
+            if ok then
+                waitUntilEmpty(cauldron, 90)
+            else
+                task.wait(1.0)
+            end
+        else
+            task.wait(0.5)
+        end
     end
 end
 
