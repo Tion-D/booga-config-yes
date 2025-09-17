@@ -434,14 +434,15 @@ local function wasteFoodLoop(fruit)
 end
 
 local function deleteItems()
-    if Items then
-        for _, item in ipairs(Items:GetChildren()) do
-            if item.Name ~= "Raw Gold" and item.Name ~= "Gold" and item.Name ~= "Essence" and item.Name ~= "Coin2" then
-                item:Destroy() 
-            end
+    local itemsFolder = Workspace:FindFirstChild("Items")
+    if not itemsFolder then return end
+    for _, item in ipairs(itemsFolder:GetChildren()) do
+        if item.Name ~= "Raw Gold" and item.Name ~= "Gold" and item.Name ~= "Essence" and item.Name ~= "Coin2" then
+            item:Destroy()
         end
     end
 end
+
 
 local function monitorItems()
     while true do
@@ -2190,7 +2191,7 @@ Tabs.GoldEXP:AddToggle("AutoWasteWood", {
     end
 })
 
-Tabs.GoldEXP:AddToggle("AutoWasteWood", {
+Tabs.GoldEXP:AddToggle("AutoWasteLog", {
     Title = "Auto Waste Log",
     Default = autolog,
     Callback = function(value)
