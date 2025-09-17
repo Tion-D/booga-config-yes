@@ -1601,7 +1601,7 @@ end
 autoBrewQueue = autoBrewQueue or {}
 autoBrewInFlight = autoBrewInFlight or {}
 
-local cauldronLocks   = setmetatable({}, { __mode = "k" })
+local cauldronLocks = setmetatable({}, { __mode = "k" })
 local cauldronWorkers = setmetatable({}, { __mode = "k" })
 
 local function enqueueDrops(itemName, cauldron, count)
@@ -1619,9 +1619,6 @@ local function queueForItem(itemName, cauldrons, countPerCauldron)
         end
     end
 end
-
-local function planDropsForCauldrons() end
-local function markInFlightItemsForTP() end
 
 local function _getCauldronParts(caul)
     if not (caul and caul:IsA("Model")) then return nil, nil, nil end
@@ -1713,9 +1710,14 @@ local function brewPotionForCauldron(cauldron, potionName)
         if getCauldronState(cauldron) ~= "empty" then return end
 
         enqueueDrops("Ice Cube", cauldron, BASE_ICE_CUBES)
-        assert(dropItemN("Ice Cube", BASE_ICE_CUBES))
-        assert(waitForStableState(cauldron, "melting", 10, 2))
-        assert(waitForLiquid(cauldron, 20))
+        local okIce = select(1, dropItemN("Ice Cube", BASE_ICE_CUBES))
+        if not okIce then cauldronLocks[cauldron] = nil; return false end
+
+        if not waitForLiquid(cauldron, 20) then
+            cauldronLocks[cauldron] = nil
+            return false
+        end
+
 
         for name, qty in pairs(recipe) do
             if getCauldronState(cauldron) ~= "liquid" then return end
