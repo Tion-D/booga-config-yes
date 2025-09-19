@@ -1598,6 +1598,14 @@ local function getNearbyCauldrons()
     return out
 end
 
+local AUTOBREW_DEBUG = true
+local function AB_LOG(...)
+    if AUTOBREW_DEBUG then
+        print("[AutoBrew]", ...)
+    end
+end
+
+
 autoBrewQueue = autoBrewQueue or {}
 autoBrewInFlight = autoBrewInFlight or {}
 
@@ -1665,11 +1673,17 @@ local function getCauldronState(caul)
         bubblingEnabled = (pe and pe.Enabled) or (snd and snd.IsPlaying) or false
     end
 
-    if t <= 0.02 then return "empty" end
-    if math.abs(t - 0.25) <= 0.05 or bubblingEnabled then
+    if t >= 0.98 then
+            AB_LOG(("State: empty (t=%.2f, bubble=%s) for %s"):format(t, tostring(bubblingEnabled), tostring(caul)))
+            return "empty"
+        end
+        if t <= 0.35 or bubblingEnabled then
+            AB_LOG(("State: liquid (t=%.2f, bubble=%s) for %s"):format(t, tostring(bubblingEnabled), tostring(caul)))
+            return "liquid"
+        end
+
+        AB_LOG(("State: liquid/fallback (t=%.2f, bubble=%s) for %s"):format(t, tostring(bubblingEnabled), tostring(caul)))
         return "liquid"
-    end
-    return "liquid"
 end
 
 local function waitForStableState(caul, target, maxTime, samples)
@@ -1745,12 +1759,6 @@ local function cauldronWorker(caul)
     cauldronWorkers[caul] = nil
 end
 
-local AUTOBREW_DEBUG = true
-local function AB_LOG(...)
-    if AUTOBREW_DEBUG then
-        print("[AutoBrew]", ...)
-    end
-end
 
 local function _countWorkers()
     local n = 0
