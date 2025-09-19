@@ -1704,7 +1704,7 @@ local function autoBrewLoop()
             Notify("Auto Brew", "Stopped (missing cauldron/ingredients).")
             break
         end
-        task.wait(2.0)
+        task.wait(1)
     end
 end
 
@@ -2574,7 +2574,7 @@ Workspace.Items.ChildAdded:Connect(function(item)
     
     if not autoBrewEnabled then return end
 
-    if tem and item.Parent == workspace.Items then
+    if autoBrewEnabled and item and item.Parent == workspace.Items then
         local q = autoBrewQueue[item.Name]
         if q and #q > 0 then
             local target = table.remove(q, 1)
