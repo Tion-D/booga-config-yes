@@ -1745,19 +1745,76 @@ local function cauldronWorker(caul)
     cauldronWorkers[caul] = nil
 end
 
-local function autoBrewLoop()
-    while autoBrewEnabled do
-        local cauldrons = getNearbyCauldrons()
-        for _, c in ipairs(cauldrons) do
-            if not cauldronWorkers[c] then
-                cauldronWorkers[c] = task.spawn(cauldronWorker, c)
-                task.wait(0.05)
-            end
-        end
-        task.wait(1.0)
+local AUTOBREW_DEBUG = true
+local function AB_LOG(...)
+    if AUTOBREW_DEBUG then
+        print("[AutoBrew]", ...)
     end
 end
 
+local function _countWorkers()
+    local n = 0
+    for k,_ in pairs(cauldronWorkers) do
+        if k and (typeof(k) == "Instance") and k.Parent then n += 1 end
+    end
+    return n
+end
+
+local function _queueSize()
+    local total = 0
+    for _,q in pairs(autoBrewQueue or {}) do
+        total += #q
+    end
+    return total
+end
+
+local function autoBrewLoop()
+    AB_LOG("Loop start. Enabled =", tostring(autoBrewEnabled))
+    while autoBrewEnabled do
+        local cauldrons = getNearbyCauldrons()
+        local n = #cauldrons
+        AB_LOG(("Found %d cauldron(s). Active workers=%d, queued drops=%d")
+            :format(n, _countWorkers(), _queueSize()))
+
+        if n == 0 then
+            AB_LOG("No cauldrons in range. Sleeping 1s.")
+            task.wait(1.0)
+            continue
+        end
+
+        for i, c in ipairs(cauldrons) do
+            if not (c and c.Parent) then
+                AB_LOG(("Skip cauldron #%d: instance invalid or removed."):format(i))
+                continue
+            end
+
+            local state
+            local ok, err = pcall(function()
+                state = getCauldronState(c)
+            end)
+            if not ok then
+                AB_LOG(("State check failed for cauldron #%d: %s"):format(i, tostring(err)))
+                continue
+            end
+
+            if cauldronWorkers[c] then
+                AB_LOG(("Cauldron #%d already has a worker. State=%s"):format(i, tostring(state)))
+            else
+                AB_LOG(("Spawning worker for cauldron #%d (state=%s)"):format(i, tostring(state)))
+                cauldronWorkers[c] = task.spawn(function()
+                    AB_LOG(("Worker START for cauldron #%d"):format(i))
+                    cauldronWorker(c)
+                    AB_LOG(("Worker END for cauldron #%d"):format(i))
+                end)
+                task.wait(0.05)
+            end
+        end
+
+        AB_LOG("Heartbeat: workers=%d, queue=%d", _countWorkers(), _queueSize())
+        task.wait(1.0)
+    end
+    AB_LOG("Loop exit (autoBrewEnabled=false).")
+end
 
 local Fluent = loadstring(game:HttpGet("https://github.com/dawid-scripts/Fluent/releases/latest/download/main.lua"))()
 local SaveManager = loadstring(game:HttpGet("https://raw.githubusercontent.com/dawid-scripts/Fluent/master/Addons/SaveManager.lua"))()
