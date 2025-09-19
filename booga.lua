@@ -119,7 +119,7 @@ local currentCauldron = nil
 local autoBrewInFlight = {}
 local autoBrewQueue = {}
 local BASE_ICE_CUBES = 3
-local ICE_MELT_WAIT = 8
+local ICE_MELT_WAIT = 10
 
 local POTION_RECIPES = {
     ["Poison"] = { ["Prickly Pear"] = 3, ["Magnetite Bar"] = 1 },
@@ -1680,7 +1680,7 @@ local function brewPotionOnce(potionName)
         Notify("Auto Brew", "Failed to drop base Ice Cubes.")
         return false
     end
-    
+
     task.wait(ICE_MELT_WAIT)
 
     for name, qty in pairs(recipe) do
@@ -1695,7 +1695,6 @@ local function brewPotionOnce(potionName)
     Notify("Auto Brew", ("Dropped ingredients for %s x%d cauldron(s)."):format(potionName, setsToRun))
     return true
 end
-
 
 local function autoBrewLoop()
     while autoBrewEnabled do
@@ -2573,15 +2572,18 @@ Workspace.Items.ChildAdded:Connect(function(item)
         until not item or item.Parent ~= workspace.Items
     end
     
-    if autoBrewEnabled and item and item.Parent == workspace.Items then
+    if not autoBrewEnabled then return end
+
+    if tem and item.Parent == workspace.Items then
         local q = autoBrewQueue[item.Name]
         if q and #q > 0 then
             local target = table.remove(q, 1)
-            local pos = target:GetPivot()
             local tries = 0
             repeat
                 Packets.ForceInteract.send(item:GetAttribute("EntityID"))
-                item:PivotTo(pos)
+                local cauldronPos = target:GetPivot().Position
+                local dropPos = cauldronPos + Vector3.new(0, 5, 0)
+                item:PivotTo(CFrame.new(dropPos))
                 Packets.ForceInteract.send()
                 tries = tries + 1
                 task.wait()
