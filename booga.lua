@@ -119,6 +119,7 @@ local currentCauldron = nil
 local autoBrewInFlight = {}
 local autoBrewQueue = {}
 local BASE_ICE_CUBES = 3
+local ICE_MELT_WAIT = 8
 
 local POTION_RECIPES = {
     ["Poison"] = { ["Prickly Pear"] = 3, ["Magnetite Bar"] = 1 },
@@ -1559,6 +1560,7 @@ local function autoFarmGoldPot()
         end
     end
 end
+
 local function findItemIndexByName(itemName)
     for index, data in next, GameUtil.getData().inventory do
         if data.name == itemName then
@@ -1584,11 +1586,6 @@ local function dropItemN(name, count)
     end
     return true, count
 end
-
-local function getNearbyCauldron()
-    return GetDeployable("Cauldron", cauldronRange, false)
-end
-
 local function getNearbyCauldrons()
     local list = GetDeployable("Cauldron", cauldronRange, true) or {}
     local out = {}
@@ -1596,27 +1593,6 @@ local function getNearbyCauldrons()
         table.insert(out, rec.deployable)
     end
     return out
-end
-
-local AUTOBREW_DEBUG = true
-local function AB_LOG(...)
-    if AUTOBREW_DEBUG then
-        print("[AutoBrew]", ...)
-    end
-end
-
-
-autoBrewQueue = autoBrewQueue or {}
-autoBrewInFlight = autoBrewInFlight or {}
-
-local cauldronLocks = setmetatable({}, { __mode = "k" })
-local cauldronWorkers = setmetatable({}, { __mode = "k" })
-
-local function enqueueDrops(itemName, cauldron, count)
-    autoBrewQueue[itemName] = autoBrewQueue[itemName] or {}
-    for i = 1, count do
-        table.insert(autoBrewQueue[itemName], cauldron)
-    end
 end
 
 local function queueForItem(itemName, cauldrons, countPerCauldron)
@@ -1628,200 +1604,109 @@ local function queueForItem(itemName, cauldrons, countPerCauldron)
     end
 end
 
-local function _getCauldronParts(caul)
-    if not (caul and caul:IsA("Model")) then return nil, nil, nil end
-    local base   = caul:FindFirstChild("base")
-    local liquid = caul:FindFirstChild("Liquid")
-    if liquid and not liquid:IsA("BasePart") then liquid = nil end
-    local hitbox = caul:FindFirstChild("Hitbox")
-    return base, liquid, hitbox
+local function planDropsForCauldrons(recipeTable, cauldrons)
+    autoBrewInFlight = {}
+    autoBrewQueue = {}
+
+    autoBrewInFlight["Ice Cube"] = BASE_ICE_CUBES * #cauldrons
+    queueForItem("Ice Cube", cauldrons, BASE_ICE_CUBES)
+
+    for name, qty in pairs(recipeTable) do
+        autoBrewInFlight[name] = qty * #cauldrons
+        queueForItem(name, cauldrons, qty)
+    end
 end
 
-local function _iceCubeCount(caul)
-    local base = _getCauldronParts(caul)
-    if not base then return 0 end
-    local n = 0
-    for _, ch in ipairs(base:GetChildren()) do
-        if ch.Name == "Ice Cube" then
-            n += 1
-        end
+local function markInFlightItemsForTP(recipeTable)
+    autoBrewInFlight = {}
+    autoBrewInFlight["Ice Cube"] = (autoBrewInFlight["Ice Cube"] or 0) + BASE_ICE_CUBES
+    for name, qty in pairs(recipeTable) do
+        autoBrewInFlight[name] = (autoBrewInFlight[name] or 0) + qty
     end
-    return n
 end
 
-local function getCauldronState(caul)
-    local base, liquid = _getCauldronParts(caul)
-    if not liquid then return "missing" end
-
-    local melting = false
-    if base then
-        for _, ch in ipairs(base:GetChildren()) do
-            if ch.Name == "Ice Cube" then
-                melting = true
-                break
-            end
-        end
-    end
-    if melting then return "melting" end
-
-    local t = liquid.Transparency or 1
-    local hitbox = caul:FindFirstChild("Hitbox")
-    local bubblingEnabled = false
-    if hitbox then
-        local pe  = hitbox:FindFirstChildOfClass("ParticleEmitter")
-        local snd = hitbox:FindFirstChildWhichIsA("Sound")
-        bubblingEnabled = (pe and pe.Enabled) or (snd and snd.IsPlaying) or false
+local function brewPotionOnce(potionName)
+    local cauldrons = getNearbyCauldrons()
+    if not cauldrons or #cauldrons == 0 then
+        Notify("Auto Brew", "No Cauldron within range (" .. tostring(cauldronRange) .. ").")
+        return false
     end
 
-    if t >= 0.98 then
-            AB_LOG(("State: empty (t=%.2f, bubble=%s) for %s"):format(t, tostring(bubblingEnabled), tostring(caul)))
-            return "empty"
-        end
-        if t <= 0.35 or bubblingEnabled then
-            AB_LOG(("State: liquid (t=%.2f, bubble=%s) for %s"):format(t, tostring(bubblingEnabled), tostring(caul)))
-            return "liquid"
-        end
-
-        AB_LOG(("State: liquid/fallback (t=%.2f, bubble=%s) for %s"):format(t, tostring(bubblingEnabled), tostring(caul)))
-        return "liquid"
-end
-
-local function waitForStableState(caul, target, maxTime, samples)
-    maxTime  = maxTime or 20
-    samples  = samples or 5
-    local okCount, t0 = 0, os.clock()
-    repeat
-        if getCauldronState(caul) == target then
-            okCount += 1
-            if okCount >= samples then return true end
-        else
-            okCount = 0
-        end
-        task.wait(0.15)
-    until os.clock() - t0 > maxTime
-    return false
-end
-
-local function waitForLiquid(caul, timeout)
-    return waitForStableState(caul, "liquid", timeout or 15, 5)
-end
-
-local function waitUntilEmpty(caul, timeout)
-    return waitForStableState(caul, "empty", timeout or 60, 6)
-end
-
-local function brewPotionForCauldron(cauldron, potionName)
-    local recipe = POTION_RECIPES[potionName or selectedPotion]
+    local recipe = POTION_RECIPES[potionName]
     if not recipe then
         Notify("Auto Brew", "Unknown potion: " .. tostring(potionName))
         return false
     end
 
-    if cauldronLocks[cauldron] then return false end
-    cauldronLocks[cauldron] = true
+    local maxSets = math.huge
 
-    local ok = pcall(function()
-        if getCauldronState(cauldron) ~= "empty" then return end
+    local okIce, haveIce = ensureHasQuantity("Ice Cube", BASE_ICE_CUBES)
+    if not okIce then
+        Notify("Auto Brew", "Need 3× Ice Cube (have " .. tostring(haveIce) .. ").")
+        return false
+    end
+    maxSets = math.min(maxSets, math.floor((haveIce or 0) / BASE_ICE_CUBES))
 
-        enqueueDrops("Ice Cube", cauldron, BASE_ICE_CUBES)
-        local okIce = select(1, dropItemN("Ice Cube", BASE_ICE_CUBES))
-        if not okIce then cauldronLocks[cauldron] = nil; return false end
-
-        if not waitForLiquid(cauldron, 20) then
-            cauldronLocks[cauldron] = nil
+    for name, need in pairs(recipe) do
+        local haveOK, have = ensureHasQuantity(name, need)
+        if not haveOK then
+            Notify("Auto Brew", ("Missing %dx %s (have %d)."):format(need, name, have))
             return false
         end
+        maxSets = math.min(maxSets, math.floor((have or 0) / need))
+    end
 
+    if maxSets <= 0 then
+        Notify("Auto Brew", "Not enough ingredients for any set.")
+        return false
+    end
 
-        for name, qty in pairs(recipe) do
-            if getCauldronState(cauldron) ~= "liquid" then return end
-            local has = ensureHasQuantity(name, qty)
-            if not has then return end
-            enqueueDrops(name, cauldron, qty)
-            assert(dropItemN(name, qty))
-            task.wait(0.2)
+    local setsToRun = math.min(#cauldrons, maxSets)
+    local activeCauldrons = {}
+    for i = 1, setsToRun do
+        table.insert(activeCauldrons, cauldrons[i])
+    end
+    currentCauldron = nil
+    local currentCauldrons = activeCauldrons
+
+    planDropsForCauldrons(recipe, activeCauldrons)
+
+    local function dropTotal(name, perSet)
+        return dropItemN(name, perSet * setsToRun)
+    end
+
+    local ok1 = dropTotal("Ice Cube", BASE_ICE_CUBES)
+    if not ok1 then
+        Notify("Auto Brew", "Failed to drop base Ice Cubes.")
+        return false
+    end
+    
+    task.wait(ICE_MELT_WAIT)
+
+    for name, qty in pairs(recipe) do
+        local ok2 = dropTotal(name, qty)
+        if not ok2 then
+            Notify("Auto Brew", "Failed to drop recipe item: " .. name)
+            return false
         end
-    end)
-
-    cauldronLocks[cauldron] = nil
-    return ok
-end
-
-local function cauldronWorker(caul)
-    while autoBrewEnabled and caul and caul.Parent do
-        if getCauldronState(caul) == "empty" then
-            brewPotionForCauldron(caul, selectedPotion)
-            waitUntilEmpty(caul, 90)
-        else
-            task.wait(0.4)
-        end
+        task.wait()
     end
-    cauldronWorkers[caul] = nil
+
+    Notify("Auto Brew", ("Dropped ingredients for %s x%d cauldron(s)."):format(potionName, setsToRun))
+    return true
 end
 
-
-local function _countWorkers()
-    local n = 0
-    for k,_ in pairs(cauldronWorkers) do
-        if k and (typeof(k) == "Instance") and k.Parent then n += 1 end
-    end
-    return n
-end
-
-local function _queueSize()
-    local total = 0
-    for _,q in pairs(autoBrewQueue or {}) do
-        total += #q
-    end
-    return total
-end
 
 local function autoBrewLoop()
-    AB_LOG("Loop start. Enabled =", tostring(autoBrewEnabled))
     while autoBrewEnabled do
-        local cauldrons = getNearbyCauldrons()
-        local n = #cauldrons
-        AB_LOG(("Found %d cauldron(s). Active workers=%d, queued drops=%d")
-            :format(n, _countWorkers(), _queueSize()))
-
-        if n == 0 then
-            AB_LOG("No cauldrons in range. Sleeping 1s.")
-            task.wait(1.0)
-            continue
+        local started = brewPotionOnce(selectedPotion)
+        if not started then
+            autoBrewEnabled = false
+            Notify("Auto Brew", "Stopped (missing cauldron/ingredients).")
+            break
         end
-
-        for i, c in ipairs(cauldrons) do
-            if not (c and c.Parent) then
-                AB_LOG(("Skip cauldron #%d: instance invalid or removed."):format(i))
-                continue
-            end
-
-            local state
-            local ok, err = pcall(function()
-                state = getCauldronState(c)
-            end)
-            if not ok then
-                AB_LOG(("State check failed for cauldron #%d: %s"):format(i, tostring(err)))
-                continue
-            end
-
-            if cauldronWorkers[c] then
-                AB_LOG(("Cauldron #%d already has a worker. State=%s"):format(i, tostring(state)))
-            else
-                AB_LOG(("Spawning worker for cauldron #%d (state=%s)"):format(i, tostring(state)))
-                cauldronWorkers[c] = task.spawn(function()
-                    AB_LOG(("Worker START for cauldron #%d"):format(i))
-                    cauldronWorker(c)
-                    AB_LOG(("Worker END for cauldron #%d"):format(i))
-                end)
-                task.wait(0.05)
-            end
-        end
-
-        AB_LOG("Heartbeat: workers=%d, queue=%d", _countWorkers(), _queueSize())
-        task.wait(1.0)
+        task.wait(2.0)
     end
-    AB_LOG("Loop exit (autoBrewEnabled=false).")
 end
 
 local Fluent = loadstring(game:HttpGet("https://github.com/dawid-scripts/Fluent/releases/latest/download/main.lua"))()
@@ -2688,24 +2573,22 @@ Workspace.Items.ChildAdded:Connect(function(item)
         until not item or item.Parent ~= workspace.Items
     end
     
-    if item and item.Parent == workspace.Items then
+    if autoBrewEnabled and item and item.Parent == workspace.Items then
         local q = autoBrewQueue[item.Name]
         if q and #q > 0 then
             local target = table.remove(q, 1)
-            if target and target.Parent then
-                local _, _, hitbox = _getCauldronParts(target)
-                local dropCFrame =
-                    (hitbox and hitbox.CFrame)
-                    or ((target:FindFirstChild("base") and target.base.CFrame) or target:GetPivot())
+            local pos = target:GetPivot()
+            local tries = 0
+            repeat
+                Packets.ForceInteract.send(item:GetAttribute("EntityID"))
+                item:PivotTo(pos)
+                Packets.ForceInteract.send()
+                tries = tries + 1
+                task.wait()
+            until not item or item.Parent ~= workspace.Items or tries >= 10
 
-                local tries = 0
-                repeat
-                    Packets.ForceInteract.send(item:GetAttribute("EntityID"))
-                    item:PivotTo(dropCFrame * CFrame.new(0, 1.25, 0))
-                    Packets.ForceInteract.send()
-                    tries += 1
-                    task.wait()
-                until not item or item.Parent ~= workspace.Items or tries >= 10
+            if autoBrewInFlight[item.Name] then
+                autoBrewInFlight[item.Name] = math.max(0, autoBrewInFlight[item.Name] - 1)
             end
         end
     end
