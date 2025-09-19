@@ -2388,13 +2388,6 @@ Tabs.Extra:AddDropdown("PotionSelect", {
     end
 })
 
-Tabs.Extra:AddButton({
-    Title = "Brew Once",
-    Callback = function()
-        brewPotionOnce(selectedPotion)
-    end
-})
-
 Tabs.Extra:AddToggle("AutoBrew", {
     Title = "Auto Brew",
     Default = false,
