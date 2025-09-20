@@ -70,6 +70,7 @@ local pickupGold
 local plantEnabled
 local harEnabled
 local tweenEnabled
+local posBlobs = {}
 
 local tween
 local tweenInfo
@@ -120,6 +121,8 @@ local autoBrewInFlight = {}
 local autoBrewQueue = {}
 local BASE_ICE_CUBES = 3
 local ICE_MELT_WAIT = 10
+local autoBrewGen = 0
+local AUTO_BREW_QCAP = 200
 
 local POTION_RECIPES = {
     ["Poison"] = { ["Prickly Pear"] = 3, ["Magnetite Bar"] = 1 },
@@ -132,6 +135,21 @@ local POTION_RECIPES = {
     ["Healing"] = { ["Bloodfruit"] = 5, ["Strawberry"] = 2 },
     ["Haste"] = { ["Iron"] = 2, ["Lemon"] = 2 },
 }
+
+local Threads, Conns = {}, {}
+
+local function kill(t)
+    if type(t) == "thread" then pcall(task.cancel, t) end
+end
+local function stopAll(keys)
+    for _,k in ipairs(keys) do
+        if Threads[k] then kill(Threads[k]); Threads[k] = nil end
+    end
+    for _,k in ipairs(keys) do
+        if Conns[k] and Conns[k].Disconnect then pcall(Conns[k].Disconnect, Conns[k]); Conns[k] = nil end
+    end
+end
+
 
 local defaultConfigUrl = "https://raw.githubusercontent.com/Tion-D/booga-config-yes/refs/heads/main/MidasConfig.txt"
 local defaultConfigFile = "MidasConfig.txt"
@@ -275,7 +293,7 @@ end
 
 local function autoEatSelectedFruit()
     local function autoEatLoop()
-        while true do
+        while autoEat do
             if fruit then
                 local fruitIndex = findFruitIndex(fruit)
                 if fruitIndex then
@@ -446,10 +464,8 @@ end
 
 
 local function monitorItems()
-    while true do
-        if deleteEnabled then
-            deleteItems()
-        end
+    while deleteEnabled do
+        deleteItems()
         task.wait(0.2)
     end
 end
@@ -582,7 +598,7 @@ local function pressCoins()
 end
 
 local function pickupCoins()
-    if pickUpPressedGold then
+    while pickUpPressedGold do
         local Items = Workspace:FindFirstChild("Items")
         if Items then
             for _, item in ipairs(Items:GetChildren()) do
@@ -591,6 +607,7 @@ local function pickupCoins()
                 end
             end
         end
+        task.wait(0.5)
     end
 end
 
@@ -677,6 +694,7 @@ local function IcenodeFarm()
                             Packets.SwingTool.send(swingEntities)
                             task.wait(1 / 4)
                         end
+                        task.wait()
                     until not entity or os.clock() - s > 25
                     Root.Anchored = false
                 end
@@ -769,6 +787,7 @@ local function CavenodeFarm()
                             Packets.SwingTool.send({node:GetAttribute("EntityID")})
                             task.wait(1 / 3)
                         end
+                        task.wait()
                     until not entity or os.clock() - s > 25
                     Root.Anchored = false
                 end
@@ -909,6 +928,7 @@ local function autoFarmPumpkin()
                             Packets.SwingTool.send({entity:GetAttribute("EntityID")})
                             task.wait(1 / 3)
                         end
+                        task.wait()
                     until not entity or os.clock() - s > 25
                     humanoidRootPart.Anchored = false
                 else
@@ -1180,7 +1200,7 @@ local function startWalking()
             end
         end
 
-        if campEnabled and chest.Contents:FindFirstChild("Gold") then
+        if campEnabled and chest and chest:FindFirstChild("Contents") and chest.Contents:FindFirstChild("Gold") then
             for x, v in next, GetDeployable("Campfire", 25, true) do
                 if v.deployable.Board.Billboard.Backdrop.TextLabel.Text <= "10" then
                     local itemID = GetFuel()
@@ -1352,10 +1372,8 @@ local function createRedBlobAtPosition(position)
     local blob = Instance.new("Part")
     blob.Shape = Enum.PartType.Ball
     blob.Color = Color3.new(1, 0, 0)
-    blob.Size = Vector3.new(2, 2, 2) 
-    blob.Anchored = true
-    blob.CanCollide = false
-    blob.Position = position
+    blob.Size = Vector3.new(2, 2, 2)
+    blob.Anchored, blob.CanCollide, blob.Position = true, false, position
     blob.Parent = workspace
 
     local billboardGui = Instance.new("BillboardGui")
@@ -1371,14 +1389,22 @@ local function createRedBlobAtPosition(position)
     textLabel.TextColor3 = Color3.new(1, 1, 1)
     textLabel.TextScaled = true
     textLabel.Parent = billboardGui
+
+    table.insert(posBlobs, blob)
+end
+
+local function clearPosBlobs()
+    for _,b in ipairs(posBlobs) do pcall(function() b:Destroy() end) end
+    table.clear(posBlobs)
 end
 
 local function loadPositionsTab()
+    
     if not isfile(selectedFileName) then
         Notify("Could not find the file: " .. selectedFileName)
         return
     end
-
+    clearPosBlobs()
     local contents = readfile(selectedFileName)
     positionList = {}
 
@@ -1406,6 +1432,7 @@ end
 
 local function clearPositionSet()
     positionList = {}
+    clearPosBlobs()
     Notify("Position set cleared.")
 end
 
@@ -1595,10 +1622,16 @@ local function getNearbyCauldrons()
     return out
 end
 
+local function resetAutoBrewState()
+    autoBrewQueue = {}
+    autoBrewInFlight = {}
+end
+
 local function queueForItem(itemName, cauldrons, countPerCauldron)
     autoBrewQueue[itemName] = autoBrewQueue[itemName] or {}
     for _, c in ipairs(cauldrons) do
         for _ = 1, countPerCauldron do
+            if #autoBrewQueue[itemName] >= AUTO_BREW_QCAP then return end
             table.insert(autoBrewQueue[itemName], c)
         end
     end
@@ -1882,11 +1915,17 @@ Tabs.GoldEXP:AddToggle("FuelCampfires", {
     end
 })
 
-Tabs.GoldEXP:AddToggle("PickupCoins", {
-    Title = "Pickup Coins",
+Tabs.Extra:AddToggle("PickupCoins", {
+    Title = "Pickup Coins (stand next to coinpress)",
     Default = false,
     Callback = function(value)
-        coinEnabled = value
+        pickUpPressedGold = value
+        if value then
+            stopAll({"pickupCoins"})
+            Threads.pickupCoins = task.spawn(pickupCoins)
+        else
+            stopAll({"pickupCoins"})
+        end
     end
 })
 
@@ -1912,7 +1951,10 @@ Tabs.GoldEXP:AddToggle("RemoveLag", {
     Callback = function(value)
         deleteEnabled = value
         if value then
-            task.spawn(monitorItems)
+            stopAll({"monitorItems"})
+            Threads.monitorItems = task.spawn(monitorItems)
+        else
+            stopAll({"monitorItems"})
         end
     end
 })
@@ -2216,6 +2258,8 @@ Tabs.PositionsTab:AddToggle("StartTweenToggle", {
                 Notify("Tweening stopped.")
             end
             tweeningEnabled = false
+            if tweenConn then tweenConn:Disconnect(); tweenConn = nil end
+            if tween then tween:Cancel(); tween = nil end
         end
     end
 })
@@ -2344,17 +2388,27 @@ Tabs.Extra:AddToggle("AutoBrew", {
         autoBrewEnabled = value
         if value then
             if #(getNearbyCauldrons()) == 0 then
-                autoBrewEnabled = false
-                Notify("Auto Brew", "No Cauldrons within range.")
-                return
+                autoBrewEnabled = false; Notify("Auto Brew", "No Cauldrons within range."); return
             end
-            task.spawn(autoBrewLoop)
+            autoBrewGen += 1
+            resetAutoBrewState()
+            stopAll({"autoBrew"})
+            Threads.autoBrew = task.spawn(function(localGen)
+                localGen = autoBrewGen
+                while autoBrewEnabled and localGen == autoBrewGen do
+                    local started = brewPotionOnce(selectedPotion)
+                    if not started then break end
+                    task.wait(1)
+                end
+            end)
         else
+            autoBrewGen += 1
+            resetAutoBrewState()
+            stopAll({"autoBrew"})
             Notify("Auto Brew", "Stopped.")
         end
     end
 })
-
 Tabs.Extra:AddToggle("PickupCoins", {
     Title = "Pickup Coins (stand next to coinpress)",
     Default = false,
@@ -2573,21 +2627,22 @@ Workspace.Items.ChildAdded:Connect(function(item)
     end
     
     if not autoBrewEnabled then return end
+    local myGen = autoBrewGen
 
-    if autoBrewEnabled and item and item.Parent == workspace.Items then
+    if item and item.Parent == workspace.Items and autoBrewEnabled and myGen == autoBrewGen then
         local q = autoBrewQueue[item.Name]
         if q and #q > 0 then
             local target = table.remove(q, 1)
             local tries = 0
             repeat
+                if not autoBrewEnabled or myGen ~= autoBrewGen then return end
                 Packets.ForceInteract.send(item:GetAttribute("EntityID"))
-                local cauldronPos = target:GetPivot().Position
-                local dropPos = cauldronPos + Vector3.new(0, 5, 0)
+                local dropPos = target:GetPivot().Position + Vector3.new(0, 5, 0)
                 item:PivotTo(CFrame.new(dropPos))
                 Packets.ForceInteract.send()
-                tries = tries + 1
+                tries += 1
                 task.wait()
-            until not item or item.Parent ~= workspace.Items or tries >= 10
+            until not item or item.Parent ~= workspace.Items or tries >= 6
 
             if autoBrewInFlight[item.Name] then
                 autoBrewInFlight[item.Name] = math.max(0, autoBrewInFlight[item.Name] - 1)
