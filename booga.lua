@@ -123,16 +123,6 @@ local BASE_ICE_CUBES = 3
 local ICE_MELT_WAIT = 10
 local autoBrewGen = 0
 local AUTO_BREW_QCAP = 200
-local BOTTLE_SLOT = 6
-local autoCollectPotions = false
-local autoCollectThread
-local POTION_LIMIT = 26
-local POTION_NAMES = {
-    ["Swift Potion"] = true,
-    ["Strength Potion"] = true,
-    ["Healing Potion"] = true,
-    ["Haste Potion"] = true,
-}
 
 local POTION_RECIPES = {
     ["Poison"] = { ["Prickly Pear"] = 3, ["Magnetite Bar"] = 1 },
@@ -1637,75 +1627,6 @@ local function resetAutoBrewState()
     autoBrewInFlight = {}
 end
 
-local function getEquippedTool()
-    local char = Players.LocalPlayer.Character
-    if not char then return nil end
-    for _, t in ipairs(char:GetChildren()) do
-        if t:IsA("Tool") then return t end
-    end
-    return nil
-end
-
-local function getPotionQuantity(name)
-    for _, data in next, GameUtil.getData().inventory do
-        if data.name == name then
-            return tonumber(data.quantity) or 0
-        end
-    end
-    return 0
-end
-
-local function equipGlassBottle()
-    local bottleIdx = findItemIndexByName("Glass Bottle")
-    if bottleIdx == 0 then
-        Notify("Auto Brew", "No Glass Bottle in inventory.")
-        return nil
-    end
-    pcall(function() Packets.Retool.send(BOTTLE_SLOT) end)
-    Packets.UseBagItem.send(bottleIdx)
-    task.wait(0.1)
-
-    local foundSlot = nil
-    for s = 1, 6 do
-        Packets.EquipTool.send(s)
-        task.wait(0.05)
-        local tool = getEquippedTool()
-        if tool and tool.Name == "Glass Bottle" then
-            foundSlot = s
-            break
-        end
-    end
-    if not foundSlot then
-        Packets.EquipTool.send(BOTTLE_SLOT)
-        task.wait(0.05)
-        local tool = getEquippedTool()
-        if tool and tool.Name == "Glass Bottle" then
-            foundSlot = BOTTLE_SLOT
-        end
-    end
-    return foundSlot
-end
-
-local function unequipSlot(slot)
-    if slot then
-        pcall(function() Packets.Retool.send(slot) end)
-    end
-end
-
-local function tweenToWithin10(targetCF)
-    if not Root or not Humanoid then return end
-    local here = Root.Position
-    local there = targetCF.Position
-    local dist = (here - there).Magnitude
-    if dist <= 10 then return end
-    local towards = (there - here).Unit
-    local goalPos = there - towards * 9.5 -- stop ~9.5 studs away
-    local duration = (Root.Position - goalPos).Magnitude / math.max(8, Humanoid.WalkSpeed)
-    local tw = TweenService:Create(Root, TweenInfo.new(duration, Enum.EasingStyle.Linear), {CFrame = CFrame.new(goalPos)})
-    tw:Play()
-    tw.Completed:Wait()
-end
-
 local function queueForItem(itemName, cauldrons, countPerCauldron)
     autoBrewQueue[itemName] = autoBrewQueue[itemName] or {}
     for _, c in ipairs(cauldrons) do
@@ -1739,6 +1660,8 @@ end
 
 local function brewPotionOnce(potionName)
     local cauldrons = getNearbyCauldrons()
+    local producedAny = false
+
     if not cauldrons or #cauldrons == 0 then
         Notify("Auto Brew", "No Cauldron within range (" .. tostring(cauldronRange) .. ").")
         return false
@@ -1795,45 +1718,66 @@ local function brewPotionOnce(potionName)
 
     task.wait(ICE_MELT_WAIT)
 
-    for name, qty in pairs(recipe) do
-        local ok2 = dropTotal(name, qty)
-        if not ok2 then
-            Notify("Auto Brew", "Failed to drop recipe item: " .. name)
-            return false
-        end
-        task.wait()
-    end
-    task.wait(2)
-
     for _, c in ipairs(currentCauldrons) do
         if not autoBrewEnabled then break end
+        if not (c and c.GetAttribute) then continue end
 
-        local eid = (c and c.GetAttribute and c:GetAttribute("EntityID"))
+        local eid = c:GetAttribute("EntityID")
+        if not eid then continue end
 
-        if c and eid then
-            tweenToWithin10(c:GetPivot())
+        tweenToWithin10(c:GetPivot())
 
-            local potionName = selectedPotion .. " Potion"
+        local potionName = selectedPotion .. " Potion"
 
-            local have = POTION_NAMES[potionName] and getPotionQuantity(potionName) or 0
-            if have >= POTION_LIMIT then
-                Notify("Auto Brew", ("Skipping %s (already %d/%d)."):format(potionName, have, POTION_LIMIT))
-            else
-                local slot = equipGlassBottle()
-                if slot then
-                    Packets.SweepPotion.send(eid)
-                    task.wait(0.1)
-                    unequipSlot(slot)
-                else
-                    Notify("Auto Brew", "No Glass Bottle available for collecting.")
-                    break
+        local have = POTION_NAMES[potionName] and getPotionQuantity(potionName) or 0
+        if have >= POTION_LIMIT then
+            Notify("Auto Brew", ("Skipping %s (already %d/%d)."):format(potionName, have, POTION_LIMIT))
+            continue
+        end
+
+        local slot = equipGlassBottle()
+        local swept = false
+
+        pcall(function()
+            Packets.SweepPotion.send({ entityID = eid })
+            swept = true
+        end)
+
+        task.wait(0.25)
+        if slot then unequipSlot(slot) end
+
+        local got = false
+        do
+            local start = os.clock()
+            local origin = c:GetPivot().Position
+            while os.clock() - start < 12 do
+                local itemsFolder = Workspace:FindFirstChild("Items")
+                if itemsFolder then
+                    for _, it in ipairs(itemsFolder:GetChildren()) do
+                        if it.Name == potionName then
+                            local itPos = (it.GetPivot and it:GetPivot().Position) or it.Position or origin
+                            if (itPos - origin).Magnitude <= 18 then
+                                Packets.Pickup.send(it:GetAttribute("EntityID"))
+                                got = true
+                                producedAny = true
+                                break
+                            end
+                        end
+                    end
                 end
+                if got then break end
+                task.wait(0.25)
             end
+        end
+
+        if not got and not swept then
+            Notify("Auto Brew", "No potion to collect.")
+            return false
         end
     end
 
     Notify("Auto Brew", ("Dropped ingredients for %s x%d cauldron(s)."):format(potionName, setsToRun))
-    return true
+    return producedAny
 end
 
 local function autoBrewLoop()
@@ -1847,7 +1791,6 @@ local function autoBrewLoop()
         task.wait(1)
     end
 end
-
 
 local Fluent = loadstring(game:HttpGet("https://github.com/dawid-scripts/Fluent/releases/latest/download/main.lua"))()
 local SaveManager = loadstring(game:HttpGet("https://raw.githubusercontent.com/dawid-scripts/Fluent/master/Addons/SaveManager.lua"))()
