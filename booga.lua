@@ -1,5 +1,3 @@
--- setthreadidentity(5)
-
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local events = ReplicatedStorage:FindFirstChild("Events")
 if events then
