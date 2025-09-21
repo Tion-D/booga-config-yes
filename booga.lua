@@ -1807,7 +1807,8 @@ local function brewPotionOnce(potionName)
     for _, c in ipairs(currentCauldrons) do
         if not autoBrewEnabled then break end
 
-        local eid = c and c:GetAttribute and c:GetAttribute("EntityID")
+        local eid = (c and c.GetAttribute and c:GetAttribute("EntityID"))
+
         if c and eid then
             tweenToWithin10(c:GetPivot())
 
