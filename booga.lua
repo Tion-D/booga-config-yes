@@ -1658,6 +1658,27 @@ local function markInFlightItemsForTP(recipeTable)
     end
 end
 
+local function tweenToWithin10(targetCF)
+    if not Root or not Humanoid or not targetCF then return end
+    Root.Anchored = false
+
+    local here = Root.Position
+    local there = targetCF.Position
+    local dist = (here - there).Magnitude
+    if dist <= 10 then return end
+
+    local towards = (there - here).Unit
+    local goalPos = there - towards * 9.5
+    local speed = math.max(8, Humanoid.WalkSpeed)
+    local duration = (here - goalPos).Magnitude / speed
+
+    local tw = TweenService:Create(Root, TweenInfo.new(duration, Enum.EasingStyle.Linear), {
+        CFrame = CFrame.new(goalPos)
+    })
+    tw:Play()
+    tw.Completed:Wait()
+end
+
 local function brewPotionOnce(potionName)
     local cauldrons = getNearbyCauldrons()
     local producedAny = false
