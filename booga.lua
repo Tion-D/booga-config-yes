@@ -1725,7 +1725,7 @@ local function brewPotionOnce(potionName)
         task.wait()
     end
 
-    Notify("Auto Brew", ("Dropped ingredients for %s x%d cauldron(s)."):format(potionName, setsToRun))
+    --Notify("Auto Brew", ("Dropped ingredients for %s x%d cauldron(s)."):format(potionName, setsToRun))
     return true
 end
 
