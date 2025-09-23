@@ -2599,28 +2599,37 @@ Workspace.Items.ChildAdded:Connect(function(item)
         until not item or item.Parent ~= workspace.Items
     end
     
-    if not autoBrewEnabled then return end
     local myGen = autoBrewGen
 
-    if item and item.Parent == workspace.Items and autoBrewEnabled and myGen == autoBrewGen then
-        local q = autoBrewQueue[item.Name]
-        if q and #q > 0 then
-            local target = table.remove(q, 1)
-            local tries = 0
-            repeat
-                if not autoBrewEnabled or myGen ~= autoBrewGen then return end
-                Packets.ForceInteract.send(item:GetAttribute("EntityID"))
-                local dropPos = target:GetPivot().Position + Vector3.new(0, 5, 0)
-                item:PivotTo(CFrame.new(dropPos))
-                Packets.ForceInteract.send()
-                tries += 1
-                task.wait()
-            until not item or item.Parent ~= workspace.Items or tries >= 6
+    if not item or item.Parent ~= workspace.Items then return end
+    local name = item.Name
+    if not autoBrewQueue or not autoBrewQueue[name] or #autoBrewQueue[name] == 0 then return end
+    if myGen ~= autoBrewGen then return end
 
-            if autoBrewInFlight[item.Name] then
-                autoBrewInFlight[item.Name] = math.max(0, autoBrewInFlight[item.Name] - 1)
-            end
-        end
+    local target = table.remove(autoBrewQueue[name], 1)
+    if not target or not target.Parent then return end
+
+    local id = item:GetAttribute("EntityID")
+    if not id then return end
+
+    for tries = 1, 6 do
+        if myGen ~= autoBrewGen then return end
+        if not item or item.Parent ~= workspace.Items then break end
+        if not target or not target.Parent then break end
+
+        Packets.ForceInteract.send(id)
+        local ok = pcall(function()
+            local dropPos = target:GetPivot().Position + Vector3.new(0, 5, 0)
+            item:PivotTo(CFrame.new(dropPos))
+        end)
+        Packets.ForceInteract.send()
+
+        if not ok then break end
+        task.wait()
+    end
+
+    if autoBrewInFlight and autoBrewInFlight[name] then
+        autoBrewInFlight[name] = math.max(0, autoBrewInFlight[name] - 1)
     end
 end)
 
