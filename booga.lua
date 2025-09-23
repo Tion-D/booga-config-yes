@@ -1729,18 +1729,6 @@ local function brewPotionOnce(potionName)
     return true
 end
 
-local function autoBrewLoop()
-    while autoBrewEnabled do
-        local started = brewPotionOnce(selectedPotion)
-        if not started then
-            autoBrewEnabled = false
-            Notify("Auto Brew", "Stopped (missing cauldron/ingredients).")
-            break
-        end
-        task.wait(1)
-    end
-end
-
 local Fluent = loadstring(game:HttpGet("https://github.com/dawid-scripts/Fluent/releases/latest/download/main.lua"))()
 local SaveManager = loadstring(game:HttpGet("https://raw.githubusercontent.com/dawid-scripts/Fluent/master/Addons/SaveManager.lua"))()
 local InterfaceManager = loadstring(game:HttpGet("https://raw.githubusercontent.com/dawid-scripts/Fluent/master/Addons/InterfaceManager.lua"))()
@@ -2381,34 +2369,19 @@ Tabs.Extra:AddDropdown("PotionSelect", {
     end
 })
 
-Tabs.Extra:AddToggle("AutoBrew", {
-    Title = "Auto Brew",
-    Default = false,
-    Callback = function(value)
-        autoBrewEnabled = value
-        if value then
-            if #(getNearbyCauldrons()) == 0 then
-                autoBrewEnabled = false; Notify("Auto Brew", "No Cauldrons within range."); return
-            end
-            autoBrewGen += 1
-            resetAutoBrewState()
-            stopAll({"autoBrew"})
-            Threads.autoBrew = task.spawn(function(localGen)
-                localGen = autoBrewGen
-                while autoBrewEnabled and localGen == autoBrewGen do
-                    local started = brewPotionOnce(selectedPotion)
-                    if not started then break end
-                    task.wait(1)
-                end
-            end)
+Tabs.Extra:AddButton({
+    Title = "Brew Potion Once",
+    Callback = function()
+        local success = brewPotionOnce(selectedPotion)
+        if success then
+            Notify("Auto Brew", "Brewed " .. selectedPotion .. " once.")
         else
-            autoBrewGen += 1
-            resetAutoBrewState()
-            stopAll({"autoBrew"})
-            Notify("Auto Brew", "Stopped.")
+            Notify("Auto Brew", "Failed to brew potion.")
         end
     end
 })
+
+
 Tabs.Extra:AddToggle("PickupCoins", {
     Title = "Pickup Coins (stand next to coinpress)",
     Default = false,
