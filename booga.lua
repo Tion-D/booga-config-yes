@@ -54,6 +54,8 @@ local crewRun
 local fruitRun
 local autoEat
 local noclip
+local fruitJumpEnabled = false
+local fruitJumpThread = nil
 
 local tween2
 local autoHealEnabled
@@ -111,6 +113,10 @@ local pickupRawGold = false
 local replacePotEnabled = false
 local trackingActive = false
 local startAmounts, endAmounts = nil, nil
+local rodBubbleConn
+local autoFishLoop
+local autoFishEnabled = false
+local lastHarvestScan = 0
 
 local autoBrewEnabled = false
 local selectedPotion = "Healing"
@@ -1031,55 +1037,67 @@ local function crewFarm()
     end
 end
 
+local function fruitJump(on)
+    fruitJumpEnabled = on
+    if on then
+        if fruitJumpThread then return end
+        fruitJumpThread = task.spawn(function()
+            while fruitJumpEnabled do
+                if Humanoid and Humanoid.Parent and Humanoid:GetState() ~= Enum.HumanoidStateType.Freefall then
+                    Humanoid:ChangeState(Enum.HumanoidStateType.Jumping)
+                end
+                task.wait(1)
+            end
+        end)
+    else
+        if fruitJumpThread then pcall(task.cancel, fruitJumpThread); fruitJumpThread = nil end
+    end
+end
+
 local function fruitFarm()
     while task.wait() do
-        if Root then
-            local deployable = GetDeployable("Plant Box", 100, true)
-            table.sort(deployable, function(a, b)
-                return a.range < b.range
-            end)
+        if not Root then
+            fruitRun = false
+            warn("Couldn't find root")
+            return
+        end
 
-            if tweenEnabled and tweenEnabled then
-                for x, v in next, deployable do
-                    if not v.deployable:FindFirstChild("Seed") then
-                        tween2 = TweenService:Create(Root, TweenInfo.new(v.range / 20, Enum.EasingStyle.Linear, Enum.EasingDirection.InOut), {CFrame = v.deployable:GetPivot() * CFrame.new(0, 5, 0)})
-                        tween2:Play()
-                        break
-                    end
+        local deployable = GetDeployable("Plant Box", 100, true) or {}
+        table.sort(deployable, function(a, b) return a.range < b.range end)
+
+        if tweenEnabled then
+            for _, v in ipairs(deployable) do
+                if v.deployable and not v.deployable:FindFirstChild("Seed") then
+                    tween2 = TweenService:Create(
+                        Root,
+                        TweenInfo.new(v.range / 20, Enum.EasingStyle.Linear, Enum.EasingDirection.InOut),
+                        { CFrame = v.deployable:GetPivot() * CFrame.new(0, 5, 0) }
+                    )
+                    tween2:Play()
+                    break
                 end
             end
+        end
 
-            if harEnabled and harEnabled then
-                for m, n in next, Workspace:GetChildren() do
+        if harEnabled and (os.clock() - lastHarvestScan > 0.5) then
+            lastHarvestScan = os.clock()
+            local resources = Workspace:FindFirstChild("Resources")
+            if resources then
+                for _, n in ipairs(resources:GetChildren()) do
                     local item = ItemData[n.Name]
                     if item and item.itemType == "crop" and (Root.Position - n:GetPivot().Position).Magnitude < 25 then
                         Packets.Pickup.send(n:GetAttribute("EntityID"))
                     end
                 end
             end
+        end
 
-            if plantEnabled and plantEnabled then
-                for x, v in next, deployable do
-                    if v.range < 25 then
-                        if not v.deployable:FindFirstChild("Seed") and HasItem(fruit) then
-                            Packets.InteractStructure.send({entityID = v.deployable:GetAttribute("EntityID"), itemID = ItemIDS[fruit]})
-                            --task.wait(0.023333333)
-                        end
-                    end
+        if plantEnabled then
+            for _, v in ipairs(deployable) do
+                if v.range < 25 and v.deployable and not v.deployable:FindFirstChild("Seed") and HasItem(fruit) then
+                    Packets.InteractStructure.send({ entityID = v.deployable:GetAttribute("EntityID"), itemID = ItemIDS[fruit] })
                 end
-                task.spawn(function()
-                    while true do
-                        if humanoid and humanoid.Parent then
-                            humanoid:ChangeState(Enum.HumanoidStateType.Jumping)
-                        end
-                        task.wait(1)
-                    end
-                end)
             end
-        
-        else
-            fruitRun:Set(false)
-            warn("Couldn't find the root")
         end
     end
 end
@@ -1497,20 +1515,18 @@ local function applySkins()
 end
 
 local function startAutoFishing()
-    Packets.RodBubble.listen(function(data)
+    if rodBubbleConn then rodBubbleConn:Disconnect(); rodBubbleConn = nil end
+    rodBubbleConn = Packets.RodBubble.listen(function(data)
         if data.should_bubble then
             Packets.RodEnd.send()
         end
     end)
-
-    task.spawn(function()
+    if autoFishLoop then pcall(task.cancel, autoFishLoop) end
+    autoFishLoop = task.spawn(function()
         while autoFishEnabled do
             if not Players.LocalPlayer:GetAttribute("Fishing") then
-                local calculated = Workspace.CurrentCamera:ScreenPointToRay(LocalPlayerMouse.X, LocalPlayerMouse.Y)
-                Packets.RodSwing.send({
-                    origin = calculated.Origin,
-                    direction = calculated.Direction * 2000
-                })
+                local ray = workspace.CurrentCamera:ScreenPointToRay(LocalPlayerMouse.X, LocalPlayerMouse.Y)
+                Packets.RodSwing.send({ origin = ray.Origin, direction = ray.Direction * 2000 })
             end
             task.wait(1)
         end
@@ -1622,10 +1638,6 @@ local function getNearbyCauldrons()
     return out
 end
 
-local function resetAutoBrewState()
-    autoBrewQueue = {}
-    autoBrewInFlight = {}
-end
 
 local function queueForItem(itemName, cauldrons, countPerCauldron)
     autoBrewQueue[itemName] = autoBrewQueue[itemName] or {}
@@ -1813,6 +1825,14 @@ Tabs.Main:AddToggle("AutoEat", {
     end
 })
 
+Tabs.Main:AddToggle("FruitJump", {
+    Title = "Jump",
+    Default = false,
+    Callback = function(v)
+        fruitJump(v)
+    end
+})
+
 Tabs.Main:AddToggle("Run", {
     Title = "Start",
     Default = false,
@@ -1903,17 +1923,11 @@ Tabs.GoldEXP:AddToggle("FuelCampfires", {
     end
 })
 
-Tabs.Extra:AddToggle("PickupCoins", {
-    Title = "Pickup Coins (stand next to coinpress)",
+Tabs.GoldEXP:AddToggle("PickupCoins", {
+    Title = "Pickup Coins",
     Default = false,
     Callback = function(value)
-        pickUpPressedGold = value
-        if value then
-            stopAll({"pickupCoins"})
-            Threads.pickupCoins = task.spawn(pickupCoins)
-        else
-            stopAll({"pickupCoins"})
-        end
+        coinEnabled = value
     end
 })
 
@@ -2450,14 +2464,16 @@ Tabs.Extra:AddToggle("AutohittWithResources", {
     end
 })
 
-
-Tabs.Extra:AddToggle("AutoFish", { 
-    Title = "Auto Fish", 
+Tabs.Extra:AddToggle("AutoFish", {
+    Title = "Auto Fish",
     Default = false,
-    Callback = function(value)
-        autoFishEnabled = value
-        if autoFishEnabled then
-            task.spawn(startAutoFishing)
+    Callback = function(v)
+        autoFishEnabled = v
+        if v then
+            startAutoFishing()
+        else
+            if rodBubbleConn then rodBubbleConn:Disconnect(); rodBubbleConn = nil end
+            if autoFishLoop then pcall(task.cancel, autoFishLoop); autoFishLoop = nil end
         end
     end
 })
