@@ -2364,8 +2364,6 @@ Tabs.PositionsTab:AddSlider("TweenSpeedSlider", {
     end
 })
 
-Tabs.Extra:AddSection("Extra")
-
 Tabs.Extra:AddSection("Auto Brew Potions")
 
 Tabs.Extra:AddDropdown("PotionSelect", {
@@ -2457,7 +2455,7 @@ Tabs.Extra:AddToggle("AutohittWithResources", {
             task.spawn(function()
                 while interactingWithResources do
                     interactWithNearbyResources(25)
-                    task.wait()
+                    task.wait(0.1)
                 end
             end)
         end
@@ -2611,6 +2609,7 @@ Workspace.Items.ChildAdded:Connect(function(item)
         until not item or item.Parent ~= workspace.Items
     elseif item.Name == "Essence" and essenceEnabled then
         repeat
+            task.wait(1)
             Packets.Pickup.send(item:GetAttribute("EntityID"))
         until not item or item.Parent ~= workspace.Items
     end
