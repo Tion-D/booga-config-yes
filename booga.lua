@@ -1,19 +1,13 @@
 setthreadidentity(5)
-local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local events = ReplicatedStorage:FindFirstChild("Events")
-if events then
-    local sendEmbed = events:FindFirstChild("SendEmbed")
-    if sendEmbed and sendEmbed:IsA("RemoteEvent") then
-        local oldNamecall
-        oldNamecall = hookmetamethod(game, "__namecall", function(self, ...)
-            if not checkcaller() and getnamecallmethod() == "FireServer" and tostring(self) == "SendEmbed" then
-                return
-            end
-            return oldNamecall(self, ...)
-        end)
-    end
-end
+local old; old = hookmetamethod(game, "__namecall", function(self, ...)
+    if getnamecallmethod() == "Fire" and self.Name == "SendEmbed" and not checkcaller() then 
+        return "shut up"
+    end 
 
+    return old(self, ...)
+end)
+
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local PathfindingService = game:GetService("PathfindingService")
 local TweenService = game:GetService("TweenService")
 local Workspace = game:GetService("Workspace")
@@ -2364,6 +2358,8 @@ Tabs.PositionsTab:AddSlider("TweenSpeedSlider", {
     end
 })
 
+Tabs.Extra:AddSection("Extra")
+
 Tabs.Extra:AddSection("Auto Brew Potions")
 
 Tabs.Extra:AddDropdown("PotionSelect", {
@@ -2455,7 +2451,7 @@ Tabs.Extra:AddToggle("AutohittWithResources", {
             task.spawn(function()
                 while interactingWithResources do
                     interactWithNearbyResources(25)
-                    task.wait(0.1)
+                    task.wait()
                 end
             end)
         end
@@ -2609,14 +2605,12 @@ Workspace.Items.ChildAdded:Connect(function(item)
         until not item or item.Parent ~= workspace.Items
     elseif item.Name == "Essence" and essenceEnabled then
         repeat
-            task.wait(1)
             Packets.Pickup.send(item:GetAttribute("EntityID"))
         until not item or item.Parent ~= workspace.Items
     end
     
     local myGen = autoBrewGen
 
-    if not item or item.Parent ~= workspace.Items then return end
     local name = item.Name
     if not autoBrewQueue or not autoBrewQueue[name] or #autoBrewQueue[name] == 0 then return end
     if myGen ~= autoBrewGen then return end
@@ -2627,21 +2621,24 @@ Workspace.Items.ChildAdded:Connect(function(item)
     local id = item:GetAttribute("EntityID")
     if not id then return end
 
-    for tries = 1, 6 do
-        if myGen ~= autoBrewGen then return end
-        if not item or item.Parent ~= workspace.Items then break end
-        if not target or not target.Parent then break end
+    if myGen == autoBrewGen and item and item.Parent == workspace.Items and target and target.Parent then
+        for tries = 1, 6 do
+            if myGen ~= autoBrewGen then return end
+            if not item or item.Parent ~= workspace.Items then break end
+            if not target or not target.Parent then break end
 
-        Packets.ForceInteract.send(id)
-        local ok = pcall(function()
-            local dropPos = target:GetPivot().Position + Vector3.new(0, 5, 0)
-            item:PivotTo(CFrame.new(dropPos))
-        end)
-        Packets.ForceInteract.send()
+            Packets.ForceInteract.send(id)
+            local ok = pcall(function()
+                local dropPos = target:GetPivot().Position + Vector3.new(0, 5, 0)
+                item:PivotTo(CFrame.new(dropPos))
+            end)
+            Packets.ForceInteract.send()
 
-        if not ok then break end
-        task.wait()
+            if not ok then break end
+            task.wait()
+        end
     end
+
 
     if autoBrewInFlight and autoBrewInFlight[name] then
         autoBrewInFlight[name] = math.max(0, autoBrewInFlight[name] - 1)
