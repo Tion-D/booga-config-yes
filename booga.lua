@@ -613,32 +613,55 @@ end
 
 local function pickupGolds()
     while pickupGold do
-        local Items = Workspace:FindFirstChild("Items")
-        if Items then
-            for _, item in ipairs(Items:GetChildren()) do
+        local ItemsFolder = Workspace:FindFirstChild("Items")
+        if ItemsFolder then
+            for _, item in ipairs(ItemsFolder:GetChildren()) do
                 if item.Name == "Gold" then
-                    Packets.Pickup.send(item:GetAttribute("EntityID"))
+                    local t0 = os.clock()
+                    local id = item:GetAttribute("EntityID")
+                    while item.Parent == workspace.Items and not id and os.clock() - t0 < 3 do
+                        task.wait()
+                        id = item:GetAttribute("EntityID")
+                    end
+                    if id then
+                        for i = 1, 8 do
+                            if not item or item.Parent ~= workspace.Items then break end
+                            Packets.Pickup.send(id)
+                            task.wait(0.12)
+                        end
+                    end
                 end
             end
         end
-        task.wait(0.5)
+        task.wait(0.25)
     end
 end
 
 local function pickupRawGolds()
     while pickupRawGold do
-        local Items = Workspace:FindFirstChild("Items")
-        if Items then
-            for _, item in ipairs(Items:GetChildren()) do
+        local ItemsFolder = Workspace:FindFirstChild("Items")
+        if ItemsFolder then
+            for _, item in ipairs(ItemsFolder:GetChildren()) do
                 if item.Name == "Raw Gold" then
-                    Packets.Pickup.send(item:GetAttribute("EntityID"))
+                    local t0 = os.clock()
+                    local id = item:GetAttribute("EntityID")
+                    while item.Parent == workspace.Items and not id and os.clock() - t0 < 3 do
+                        task.wait()
+                        id = item:GetAttribute("EntityID")
+                    end
+                    if id then
+                        for i = 1, 8 do
+                            if not item or item.Parent ~= workspace.Items then break end
+                            Packets.Pickup.send(id)
+                            task.wait(0.12)
+                        end
+                    end
                 end
             end
         end
-        task.wait(0.5)
+        task.wait(0.25)
     end
 end
-
 local function sendEntitiesBuffer(entities)
     local bufferSize = #entities * 4 + 2
     local entityBuffer = buffer.create(bufferSize)
@@ -1173,77 +1196,112 @@ local function startWalking()
         Humanoid = Character:WaitForChild("Humanoid")
         Root = Character:WaitForChild("HumanoidRootPart")
     end
-
     if #positionList == 0 then
         Notify("Unable to start walking. No positions available.")
         return
     end
 
+    local progressTimeout = 6
+    local progressEpsilon = 2.0
+    local closeEnough = 3.0
+
     while walkingEnabled do
-        for _, pos in ipairs(positionList) do
-            if not walkingEnabled then break end
-
-            if pos and pos.X and pos.Y and pos.Z then
-                local targetPos = Vector3.new(pos.X, pos.Y, pos.Z)
-                Humanoid:MoveTo(targetPos)
-
-                local moveFinished = false
-                local conn
-                conn = Humanoid.MoveToFinished:Connect(function(reached)
-                    moveFinished = true
-                    conn:Disconnect()
-                end)
-
-                local startTime = tick()
-                while not moveFinished and tick() - startTime < 15 do
-                    task.wait(0.1)
+        local nearestIndex, nearestDist = 1, math.huge
+        local rp = Root and Root.Position or Vector3.zero
+        for i, pos in ipairs(positionList) do
+            local targetPos = (pos.X and pos.Y and pos.Z) and Vector3.new(pos.X, pos.Y, pos.Z) or (typeof(pos) == "Vector3" and pos or nil)
+            if targetPos then
+                local d = (rp - targetPos).Magnitude
+                if d < nearestDist then
+                    nearestDist, nearestIndex = d, i
                 end
-
-                if not moveFinished then
-                    Notify("Walking to position taking too long; restarting move for this transition.")
-                    Humanoid:MoveTo(targetPos)
-                    Humanoid.MoveToFinished:Wait()
-                end
-
-                if not walkingEnabled then break end
-                task.wait(0.1)
-            else
-                Notify("Invalid position data.")
             end
         end
 
+        local i = nearestIndex
+        while walkingEnabled do
+            local raw = positionList[i]
+            local targetPos = (raw and raw.X and raw.Y and raw.Z) and Vector3.new(raw.X, raw.Y, raw.Z) or (typeof(raw) == "Vector3" and raw or nil)
+            if not targetPos then
+                Notify("Invalid position data.")
+                i = (i % #positionList) + 1
+                continue
+            end
+
+            Humanoid:MoveTo(targetPos)
+
+            local moveFinished = false
+            local lastBest = (Root.Position - targetPos).Magnitude
+            local startT = tick()
+            local conn; conn = Humanoid.MoveToFinished:Connect(function()
+                moveFinished = true
+                if conn then conn:Disconnect() end
+            end)
+
+            while walkingEnabled and not moveFinished do
+                task.wait(0.25)
+                local nowDist = (Root.Position - targetPos).Magnitude
+
+                if nowDist <= closeEnough then
+                    break
+                end
+
+                if lastBest - nowDist >= progressEpsilon then
+                    lastBest = nowDist
+                    startT = tick()
+                end
+
+                if tick() - startT >= progressTimeout then
+                    if conn then conn:Disconnect() end
+                    local bestI, bestD = i, nowDist
+                    local rp2 = Root.Position
+                    for j, p in ipairs(positionList) do
+                        local tp = (p.X and p.Y and p.Z) and Vector3.new(p.X, p.Y, p.Z) or (typeof(p) == "Vector3" and p or nil)
+                        if tp then
+                            local d = (rp2 - tp).Magnitude
+                            if d < bestD then
+                                bestD, bestI = d, j
+                            end
+                        end
+                    end
+                    i = bestI
+                    goto continue_outer_walk
+                end
+            end
+
+            if conn then conn:Disconnect() end
+            if not walkingEnabled then break end
+
+            i = (i % #positionList) + 1
+
+            ::continue_outer_walk::
+            task.wait(0.05)
+        end
+
         if campEnabled and chest and chest:FindFirstChild("Contents") and chest.Contents:FindFirstChild("Gold") then
-            for x, v in next, GetDeployable("Campfire", 25, true) do
+            for _, v in next, GetDeployable("Campfire", 25, true) do
                 if v.deployable.Board.Billboard.Backdrop.TextLabel.Text <= "10" then
                     local itemID = GetFuel()
                     if itemID then
-                        Packets.InteractStructure.send({
-                            entityID = v.deployable:GetAttribute("EntityID"),
-                            itemID = itemID
-                        })
+                        Packets.InteractStructure.send({ entityID = v.deployable:GetAttribute("EntityID"), itemID = itemID })
                     end
                 end
             end
         end
-
-        if pickUpGoldEnabled and chest.Contents:FindFirstChild("Gold") then
-            for x, v in next, chest.Contents:GetChildren() do
+        if pickUpGoldEnabled and chest and chest.Contents then
+            for _, v in next, chest.Contents:GetChildren() do
                 if v.Name == "Gold" then
                     Packets.Pickup.send(v:GetAttribute("EntityID"))
                 end
             end
         end
-
-        if pressEnabled and chest.Contents:FindFirstChild("Gold") then
+        if pressEnabled and chest and chest.Contents then
             local deployable = GetDeployable("Coin Press", 25)
             if deployable then
-                for x, v in next, chest.Contents:GetChildren() do
+                for _, v in next, chest.Contents:GetChildren() do
                     if v.Name == "Gold" then
                         Packets.Pickup.send(v:GetAttribute("EntityID"))
-                        Packets.InteractStructure.send({
-                            entityID = deployable:GetAttribute("EntityID"),
-                            itemID = ItemIDS[v.Name]
-                        })
+                        Packets.InteractStructure.send({ entityID = deployable:GetAttribute("EntityID"), itemID = ItemIDS[v.Name] })
                         task.wait(0.2)
                     end
                 end
@@ -1264,16 +1322,34 @@ local function startTweening()
         return
     end
 
+    local progressTimeout = 6
+    local progressEpsilon = 2.0
+    local closeEnough = 2.5
+
     while tweeningEnabled do
-        for _, pos in ipairs(positionList) do
-            if not tweeningEnabled then break end
-            if not (pos and pos.X and pos.Y and pos.Z) then
+        local nearestIndex, nearestDist = 1, math.huge
+        local rp = Root and Root.Position or Vector3.zero
+        for i, pos in ipairs(positionList) do
+            local tp = (pos.X and pos.Y and pos.Z) and Vector3.new(pos.X, pos.Y, pos.Z) or (typeof(pos) == "Vector3" and pos or nil)
+            if tp then
+                local d = (rp - tp).Magnitude
+                if d < nearestDist then
+                    nearestDist, nearestIndex = d, i
+                end
+            end
+        end
+
+        local i = nearestIndex
+        while tweeningEnabled do
+            local raw = positionList[i]
+            local targetPos = (raw and raw.X and raw.Y and raw.Z) and Vector3.new(raw.X, raw.Y, raw.Z) or (typeof(raw) == "Vector3" and raw or nil)
+            if not targetPos then
                 Notify("Invalid position data.")
+                i = (i % #positionList) + 1
                 continue
             end
 
-            local targetPos = Vector3.new(pos.X, pos.Y, pos.Z)
-            local duration = (Root.Position - targetPos).Magnitude / walkSpeed
+            local duration = math.max(0.05, (Root.Position - targetPos).Magnitude / walkSpeed)
             local ti = TweenInfo.new(duration, Enum.EasingStyle.Linear)
 
             if tweenConn then tweenConn:Disconnect(); tweenConn = nil end
@@ -1282,38 +1358,56 @@ local function startTweening()
             tweenInfo = { MaxSpeed = Humanoid.WalkSpeed, CFrame = CFrame.new(targetPos) }
             tween = TweenService:Create(Root, ti, { CFrame = CFrame.new(targetPos) })
 
-            local tweenFinished = false
+            local finished = false
+            local lastBest = (Root.Position - targetPos).Magnitude
+            local startT = tick()
             tweenConn = tween.Completed:Connect(function()
-                tweenFinished = true
+                finished = true
                 if tweenConn then tweenConn:Disconnect(); tweenConn = nil end
             end)
 
             tween:Play()
-            local startTime = tick()
 
-            while not tweenFinished and tick() - startTime < 15 do
-                task.wait(0.1)
-            end
-
-            if not tweenFinished then
-                Notify("Tween taking too long; restarting.")
-                if tweenConn then tweenConn:Disconnect(); tweenConn = nil end
-                tween:Cancel()
-                tween = TweenService:Create(Root, ti, { CFrame = CFrame.new(targetPos) })
-                tweenFinished = false
-                tweenConn = tween.Completed:Connect(function()
-                    tweenFinished = true
+            while tweeningEnabled and not finished do
+                task.wait(0.2)
+                local nowDist = (Root.Position - targetPos).Magnitude
+                if nowDist <= closeEnough then
+                    break
+                end
+                if lastBest - nowDist >= progressEpsilon then
+                    lastBest = nowDist
+                    startT = tick()
+                end
+                if tick() - startT >= progressTimeout then
                     if tweenConn then tweenConn:Disconnect(); tweenConn = nil end
-                end)
-                tween:Play()
-                tween.Completed:Wait()
+                    if tween then tween:Cancel() end
+                    local rp2 = Root.Position
+                    local bestI, bestD = i, nowDist
+                    for j, p in ipairs(positionList) do
+                        local tp2 = (p.X and p.Y and p.Z) and Vector3.new(p.X, p.Y, p.Z) or (typeof(p) == "Vector3" and p or nil)
+                        if tp2 then
+                            local d = (rp2 - tp2).Magnitude
+                            if d < bestD then
+                                bestD, bestI = d, j
+                            end
+                        end
+                    end
+                    i = bestI
+                    goto continue_outer_tween
+                end
             end
 
+            if tweenConn then tweenConn:Disconnect(); tweenConn = nil end
+            if tween then tween:Cancel() end
             if not tweeningEnabled then break end
-            task.wait(0.1)
+
+            i = (i % #positionList) + 1
+
+            ::continue_outer_tween::
+            task.wait(0.05)
         end
 
-        if campEnabled and chest and chest.Contents:FindFirstChild("Gold") then
+        if campEnabled and chest and chest.Contents and chest.Contents:FindFirstChild("Gold") then
             for _, v in next, GetDeployable("Campfire", 25, true) do
                 if v.deployable.Board.Billboard.Backdrop.TextLabel.Text <= "10" then
                     local itemID = GetFuel()
@@ -1323,25 +1417,20 @@ local function startTweening()
                 end
             end
         end
-
-        if pickUpGoldEnabled and chest then
+        if pickUpGoldEnabled and chest and chest.Contents then
             for _, v in next, chest.Contents:GetChildren() do
                 if v.Name == "Gold" then
                     Packets.Pickup.send(v:GetAttribute("EntityID"))
                 end
             end
         end
-
-        if pressEnabled and chest then
+        if pressEnabled and chest and chest.Contents then
             local deployable = GetDeployable("Coin Press", 25)
             if deployable then
                 for _, v in next, chest.Contents:GetChildren() do
                     if v.Name == "Gold" then
                         Packets.Pickup.send(v:GetAttribute("EntityID"))
-                        Packets.InteractStructure.send({
-                            entityID = deployable:GetAttribute("EntityID"),
-                            itemID = ItemIDS[v.Name]
-                        })
+                        Packets.InteractStructure.send({ entityID = deployable:GetAttribute("EntityID"), itemID = ItemIDS[v.Name] })
                         task.wait(0.2)
                     end
                 end
@@ -1352,6 +1441,7 @@ local function startTweening()
     if tweenConn then tweenConn:Disconnect(); tweenConn = nil end
     if tween then tween:Cancel(); tween = nil end
 end
+
 
 local function autoJump()
     while autoJumpEnabled do
@@ -2588,61 +2678,131 @@ Fluent:Notify({
 
 SaveManager:LoadAutoloadConfig()
 
-Workspace.Items.ChildAdded:Connect(function(item)
-    if icenodeRun or cavenodeRun or antRun or crewRun or TPGoldToChest then
-        if item.Name == "Raw Gold" and chest then
-            repeat
-                Packets.ForceInteract.send(item:GetAttribute("EntityID"))
-                item:PivotTo(chest:GetPivot())
-                Packets.ForceInteract.send()
+if Conns.itemsChildAdded then Conns.itemsChildAdded:Disconnect() end
+Conns.itemsChildAdded = Workspace.Items.ChildAdded:Connect(function(item)
+    if (icenodeRun or cavenodeRun or antRun or crewRun or TPGoldToChest) and item.Name == "Raw Gold" and chest then
+        task.spawn(function()
+            while item and item.Parent == workspace.Items do
+                local id = item:GetAttribute("EntityID")
+                if id then
+                    Packets.ForceInteract.send(id)
+                    pcall(function() item:PivotTo(chest:GetPivot()) end)
+                    Packets.ForceInteract.send()
+                end
                 task.wait()
-            until not item or item.Parent ~= workspace.Items
-        end
+            end
+        end)
+        return
     end
+
     if item.Name == "Coin2" and coinEnabled then
-        repeat
-            Packets.Pickup.send(item:GetAttribute("EntityID"))
-        until not item or item.Parent ~= workspace.Items
-    elseif item.Name == "Essence" and essenceEnabled then
-        repeat
-            Packets.Pickup.send(item:GetAttribute("EntityID"))
-        until not item or item.Parent ~= workspace.Items
-    end
-    
-    local myGen = autoBrewGen
-
-    local name = item.Name
-    if not autoBrewQueue or not autoBrewQueue[name] or #autoBrewQueue[name] == 0 then return end
-    if myGen ~= autoBrewGen then return end
-
-    local target = table.remove(autoBrewQueue[name], 1)
-    if not target or not target.Parent then return end
-
-    local id = item:GetAttribute("EntityID")
-    if not id then return end
-
-    if myGen == autoBrewGen and item and item.Parent == workspace.Items and target and target.Parent then
-        for tries = 1, 6 do
-            if myGen ~= autoBrewGen then return end
-            if not item or item.Parent ~= workspace.Items then break end
-            if not target or not target.Parent then break end
-
-            Packets.ForceInteract.send(id)
-            local ok = pcall(function()
-                local dropPos = target:GetPivot().Position + Vector3.new(0, 5, 0)
-                item:PivotTo(CFrame.new(dropPos))
-            end)
-            Packets.ForceInteract.send()
-
-            if not ok then break end
-            task.wait()
-        end
+        task.spawn(function()
+            local t0 = os.clock()
+            local id = item:GetAttribute("EntityID")
+            while item.Parent == workspace.Items and not id and os.clock() - t0 < 3 do
+                task.wait()
+                id = item:GetAttribute("EntityID")
+            end
+            if id then
+                for i = 1, 8 do
+                    if not item or item.Parent ~= workspace.Items then break end
+                    Packets.Pickup.send(id)
+                    task.wait(0.12)
+                end
+            end
+        end)
+        return
     end
 
-
-    if autoBrewInFlight and autoBrewInFlight[name] then
-        autoBrewInFlight[name] = math.max(0, autoBrewInFlight[name] - 1)
+    if item.Name == "Essence" and essenceEnabled then
+        task.spawn(function()
+            local t0 = os.clock()
+            local id = item:GetAttribute("EntityID")
+            while item.Parent == workspace.Items and not id and os.clock() - t0 < 3 do
+                task.wait()
+                id = item:GetAttribute("EntityID")
+            end
+            if id then
+                for i = 1, 8 do
+                    if not item or item.Parent ~= workspace.Items then break end
+                    Packets.Pickup.send(id)
+                    task.wait(0.12)
+                end
+            end
+        end)
+        return
     end
+
+    if item.Name == "Gold" and pickupGold then
+        task.spawn(function()
+            local t0 = os.clock()
+            local id = item:GetAttribute("EntityID")
+            while item.Parent == workspace.Items and not id and os.clock() - t0 < 3 do
+                task.wait()
+                id = item:GetAttribute("EntityID")
+            end
+            if id then
+                for i = 1, 8 do
+                    if not item or item.Parent ~= workspace.Items then break end
+                    Packets.Pickup.send(id)
+                    task.wait(0.12)
+                end
+            end
+        end)
+        return
+    end
+
+    if item.Name == "Raw Gold" and pickupRawGold then
+        task.spawn(function()
+            local t0 = os.clock()
+            local id = item:GetAttribute("EntityID")
+            while item.Parent == workspace.Items and not id and os.clock() - t0 < 3 do
+                task.wait()
+                id = item:GetAttribute("EntityID")
+            end
+            if id then
+                for i = 1, 8 do
+                    if not item or item.Parent ~= workspace.Items then break end
+                    Packets.Pickup.send(id)
+                    task.wait(0.12)
+                end
+            end
+        end)
+        return
+    end
+
+    -- local myGen = autoBrewGen
+    -- local name = item.Name
+    -- if not autoBrewQueue or not autoBrewQueue[name] or #autoBrewQueue[name] == 0 then return end
+    -- if myGen ~= autoBrewGen then return end
+
+    -- local target = table.remove(autoBrewQueue[name], 1)
+    -- if not target or not target.Parent then return end
+
+    -- local id = item:GetAttribute("EntityID")
+    -- if not id then return end
+
+    -- if myGen == autoBrewGen and item and item.Parent == workspace.Items and target and target.Parent then
+    --     for tries = 1, 6 do
+    --         if myGen ~= autoBrewGen then return end
+    --         if not item or item.Parent ~= workspace.Items then break end
+    --         if not target or not target.Parent then break end
+
+    --         Packets.ForceInteract.send(id)
+    --         local ok = pcall(function()
+    --             local dropPos = target:GetPivot().Position + Vector3.new(0, 5, 0)
+    --             item:PivotTo(CFrame.new(dropPos))
+    --         end)
+    --         Packets.ForceInteract.send()
+
+    --         if not ok then break end
+    --         task.wait()
+    --     end
+    -- end
+
+    -- if autoBrewInFlight and autoBrewInFlight[name] then
+    --     autoBrewInFlight[name] = math.max(0, autoBrewInFlight[name] - 1)
+    -- end
 end)
 
 Workspace.Deployables.ChildRemoved:Connect(function(deployable)
