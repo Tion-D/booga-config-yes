@@ -1492,12 +1492,10 @@ local function noclipDoors(enabled)
         end
     end
     for _, v in workspace.resources:GetChildren() do
-            if v.Name == "Old Boards" then
-                v:Destroy()
-            end
+        if v.Name == "Old Boards" then
+            v:Destroy()
         end
     end
-    
 end
 
 local function updateHugePumpkinESP()
