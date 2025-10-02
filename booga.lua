@@ -1375,7 +1375,7 @@ local function startTweening()
             local ti = TweenInfo.new(duration, Enum.EasingStyle.Linear)
 
             if tweenConn then tweenConn:Disconnect(); tweenConn = nil end
-            if tween     then tween:Cancel() end
+            if tween then tween:Cancel() end
 
             tweenInfo = { MaxSpeed = Humanoid.WalkSpeed, CFrame = CFrame.new(targetPos) }
             tween = TweenService:Create(Root, ti, { CFrame = CFrame.new(targetPos) })
@@ -1418,7 +1418,7 @@ local function startTweening()
 
                 lastPoll = tick()
                 lastDist = curDist
-                lastPos  = curPos
+                lastPos = curPos
             end
 
             if tweenConn then tweenConn:Disconnect(); tweenConn = nil end
@@ -1468,7 +1468,7 @@ local function startTweening()
     end
 
     if tweenConn then tweenConn:Disconnect(); tweenConn = nil end
-    if tween     then tween:Cancel(); tween = nil end
+    if tween then tween:Cancel(); tween = nil end
 end
 
 
@@ -2185,28 +2185,28 @@ Tabs.GoldEXP:AddToggle("AntFarm", {
     end
 })
 
-Tabs.GoldEXP:AddToggle("AutoFarmGoldPot", {
-    Title = "Auto Farm Gold Pot",
-    Default = false,
-    Callback = function(value)
-        if value then
-            farm.goldPot = task.spawn(autoFarmGoldPot)
-        else
-            if farm.goldPot then
-                pcall(task.cancel, farm.goldPot)
-                farm.goldPot = nil
-            end
-        end
-    end
-})
+-- Tabs.GoldEXP:AddToggle("AutoFarmGoldPot", {
+--     Title = "Auto Farm Gold Pot",
+--     Default = false,
+--     Callback = function(value)
+--         if value then
+--             farm.goldPot = task.spawn(autoFarmGoldPot)
+--         else
+--             if farm.goldPot then
+--                 pcall(task.cancel, farm.goldPot)
+--                 farm.goldPot = nil
+--             end
+--         end
+--     end
+-- })
 
-Tabs.GoldEXP:AddToggle("ReplaceGoldPot", {
-    Title = "Replace pot that u broke",
-    Default = false,
-    Callback = function(value)
-        replacePotEnabled = value
-    end
-})
+-- Tabs.GoldEXP:AddToggle("ReplaceGoldPot", {
+--     Title = "Replace pot that u broke",
+--     Default = false,
+--     Callback = function(value)
+--         replacePotEnabled = value
+--     end
+-- })
 
 -- Tabs.GoldEXP:AddToggle("PumpkinESP", {
 --     Title = "ESP for Huge Pumpkin",
@@ -2525,7 +2525,6 @@ Tabs.Extra:AddToggle("PickupItems", {
     end
 })
 
-
 Tabs.Extra:AddToggle("PickupCoins", {
     Title = "Pickup Coins (stand next to coinpress)",
     Default = false,
@@ -2658,12 +2657,12 @@ Tabs.Extra:AddToggle("NoClip", {
     end
 })
 
-Tabs.Extra:AddButton({
-    Title = "Get every skin in the game (cant equip)",
-    Callback = function(value)
-        applySkins(value)
-    end
-})
+-- Tabs.Extra:AddButton({
+--     Title = "Get every skin in the game (cant equip)",
+--     Callback = function(value)
+--         applySkins(value)
+--     end
+-- })
 
 Tabs.Extra:AddSection("Make Farm (turn off cam lock, made by Zam)")
 
@@ -2761,6 +2760,25 @@ Conns.itemsChildAdded = Workspace.Items.ChildAdded:Connect(function(item)
     end
 
     if item.Name == "Essence" and essenceEnabled then
+        task.spawn(function()
+            local t0 = os.clock()
+            local id = item:GetAttribute("EntityID")
+            while item.Parent == workspace.Items and not id and os.clock() - t0 < 3 do
+                task.wait()
+                id = item:GetAttribute("EntityID")
+            end
+            if id then
+                for i = 1, 8 do
+                    if not item or item.Parent ~= workspace.Items then break end
+                    Packets.Pickup.send(id)
+                    task.wait(0.12)
+                end
+            end
+        end)
+        return
+    end
+
+    if pickupAllItems then
         task.spawn(function()
             local t0 = os.clock()
             local id = item:GetAttribute("EntityID")
