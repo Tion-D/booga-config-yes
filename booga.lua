@@ -1277,7 +1277,9 @@ local function startTweening()
     local REACH_RADIUS = 4
     local MAX_TRAVEL_SECS = 15
     local NO_PROGRESS_SECS = 2.5
-    local MIN_IMPROVE_studs = 0.75
+    local MIN_IMPROVE_STUDS = 0.75
+    local TELEPORT_BACK_DINC = 8
+    local TELEPORT_STEP_JUMP = 15
 
     while tweeningEnabled do
         local rp = Root.Position
@@ -1290,7 +1292,7 @@ local function startTweening()
             end
         end
 
-        for step = 1, #positionList do
+        for _ = 1, #positionList do
             if not tweeningEnabled then break end
             local pos = positionList[i]
             if not (pos and pos.X and pos.Y and pos.Z) then
@@ -1303,12 +1305,12 @@ local function startTweening()
             local ti = TweenInfo.new(duration, Enum.EasingStyle.Linear)
 
             if tweenConn then tweenConn:Disconnect(); tweenConn = nil end
-            if tween then tween:Cancel() end
+            if tween     then tween:Cancel() end
 
             tweenInfo = { MaxSpeed = Humanoid.WalkSpeed, CFrame = CFrame.new(targetPos) }
             tween = TweenService:Create(Root, ti, { CFrame = CFrame.new(targetPos) })
 
-            local completed, restartToNearest = false, false
+            local completed, restartNearest = false, false
             tweenConn = tween.Completed:Connect(function()
                 completed = true
                 if tweenConn then tweenConn:Disconnect(); tweenConn = nil end
@@ -1317,32 +1319,47 @@ local function startTweening()
             tween:Play()
 
             local t0 = tick()
-            local lastCheck = t0
+            local lastPoll = t0
             local lastDist = (Root.Position - targetPos).Magnitude
+            local lastPos = Root.Position
 
             while tweeningEnabled and not completed do
                 task.wait(0.2)
-                local curDist = (Root.Position - targetPos).Magnitude
+
+                local curPos  = Root.Position
+                local curDist = (curPos - targetPos).Magnitude
+
                 if curDist <= REACH_RADIUS then
                     completed = true
                     break
                 end
-                if (tick() - t0) > MAX_TRAVEL_SECS or ((tick() - lastCheck) > NO_PROGRESS_SECS and (lastDist - curDist) < MIN_IMPROVE_studs) then
-                    restartToNearest = true
+
+                local stepJump = (curPos - lastPos).Magnitude
+                if (curDist - lastDist) >= TELEPORT_BACK_DINC or stepJump >= TELEPORT_STEP_JUMP then
+                    restartNearest = true
                     break
                 end
-                lastCheck = tick()
-                lastDist = curDist
-            end
 
-            if restartToNearest then
-                if tweenConn then tweenConn:Disconnect(); tweenConn = nil end
-                if tween then tween:Cancel() end
-                break
+                if (tick() - t0) > MAX_TRAVEL_SECS
+                    or ((tick() - lastPoll) > NO_PROGRESS_SECS and (lastDist - curDist) < MIN_IMPROVE_STUDS) then
+                    restartNearest = true
+                    break
+                end
+
+                lastPoll = tick()
+                lastDist = curDist
+                lastPos  = curPos
             end
 
             if tweenConn then tweenConn:Disconnect(); tweenConn = nil end
             if tween then tween:Cancel(); tween = nil end
+
+            if restartNearest then
+                Root.Anchored = false
+                task.wait(0.15)
+                break
+            end
+
             i = (i % #positionList) + 1
             task.wait(0.1)
         end
@@ -1372,10 +1389,7 @@ local function startTweening()
                 for _, v in next, chest.Contents:GetChildren() do
                     if v.Name == "Gold" then
                         Packets.Pickup.send(v:GetAttribute("EntityID"))
-                        Packets.InteractStructure.send({
-                            entityID = deployable:GetAttribute("EntityID"),
-                            itemID = ItemIDS[v.Name]
-                        })
+                        Packets.InteractStructure.send({ entityID = deployable:GetAttribute("EntityID"), itemID = ItemIDS[v.Name] })
                         task.wait(0.2)
                     end
                 end
@@ -1384,7 +1398,7 @@ local function startTweening()
     end
 
     if tweenConn then tweenConn:Disconnect(); tweenConn = nil end
-    if tween then tween:Cancel(); tween = nil end
+    if tween     then tween:Cancel(); tween = nil end
 end
 
 
@@ -1446,13 +1460,13 @@ local function clearPosBlobs()
 end
 
 local function loadPositionsTab()
-    
     if not isfile(selectedFileName) then
         Notify("Could not find the file: " .. selectedFileName)
         return
     end
     clearPosBlobs()
     local contents = readfile(selectedFileName)
+    setclipboard(contents)
     positionList = {}
 
     local entries = contents:gsub("%[", ""):gsub("%]", ""):split("},")
