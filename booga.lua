@@ -583,16 +583,26 @@ local function GetCrewmates()
 end
 
 local function pressCoins()
-    if CoinpressEnabled then
-        local goldAmt = GetQuantity("Gold")
-        if goldAmt > 0 then
-            local deployable = GetDeployable("Coin Press", 25)
-            if deployable then
-                for x = 1, goldAmt do
-                    Packets.InteractStructure.send({entityID = deployable:GetAttribute("EntityID"), itemID = ItemIDS["Gold"]})
-                    task.wait(0.0005)
-                end
-            end
+    while CoinpressEnabled do
+        local deployable = GetDeployable("Coin Press", 25)
+        local entityID = deployable and deployable:GetAttribute("EntityID")
+        if not entityID then task.wait(0.3) continue end
+
+        local goldAmt = tonumber((GetQuantity("Gold") or 0)) or 0
+        if goldAmt == 0 then task.wait(0.3) continue end
+
+        local before = goldAmt
+        Packets.InteractStructure.send({ entityID = entityID, itemID = ItemIDS.Gold })
+        task.wait(0.05)
+
+        local t0 = os.clock()
+        repeat
+            task.wait(0.1)
+            goldAmt = tonumber((GetQuantity("Gold") or 0)) or 0
+        until goldAmt < before or (os.clock() - t0) > 1.2
+
+        if goldAmt >= before then
+            task.wait(0.5)
         end
     end
 end
