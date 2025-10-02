@@ -2735,38 +2735,38 @@ Conns.itemsChildAdded = Workspace.Items.ChildAdded:Connect(function(item)
         return
     end
 
-    -- local myGen = autoBrewGen
-    -- local name = item.Name
-    -- if not autoBrewQueue or not autoBrewQueue[name] or #autoBrewQueue[name] == 0 then return end
-    -- if myGen ~= autoBrewGen then return end
+    local myGen = autoBrewGen
+    local name = item.Name
+    if not autoBrewQueue or not autoBrewQueue[name] or #autoBrewQueue[name] == 0 then return end
+    if myGen ~= autoBrewGen then return end
 
-    -- local target = table.remove(autoBrewQueue[name], 1)
-    -- if not target or not target.Parent then return end
+    local target = table.remove(autoBrewQueue[name], 1)
+    if not target or not target.Parent then return end
 
-    -- local id = item:GetAttribute("EntityID")
-    -- if not id then return end
+    local id = item:GetAttribute("EntityID")
+    if not id then return end
 
-    -- if myGen == autoBrewGen and item and item.Parent == workspace.Items and target and target.Parent then
-    --     for tries = 1, 6 do
-    --         if myGen ~= autoBrewGen then return end
-    --         if not item or item.Parent ~= workspace.Items then break end
-    --         if not target or not target.Parent then break end
+    if myGen == autoBrewGen and item and item.Parent == workspace.Items and target and target.Parent then
+        for tries = 1, 6 do
+            if myGen ~= autoBrewGen then return end
+            if not item or item.Parent ~= workspace.Items then break end
+            if not target or not target.Parent then break end
 
-    --         Packets.ForceInteract.send(id)
-    --         local ok = pcall(function()
-    --             local dropPos = target:GetPivot().Position + Vector3.new(0, 5, 0)
-    --             item:PivotTo(CFrame.new(dropPos))
-    --         end)
-    --         Packets.ForceInteract.send()
+            Packets.ForceInteract.send(id)
+            local ok = pcall(function()
+                local dropPos = target:GetPivot().Position + Vector3.new(0, 5, 0)
+                item:PivotTo(CFrame.new(dropPos))
+            end)
+            Packets.ForceInteract.send()
 
-    --         if not ok then break end
-    --         task.wait()
-    --     end
-    -- end
+            if not ok then break end
+            task.wait()
+        end
+    end
 
-    -- if autoBrewInFlight and autoBrewInFlight[name] then
-    --     autoBrewInFlight[name] = math.max(0, autoBrewInFlight[name] - 1)
-    -- end
+    if autoBrewInFlight and autoBrewInFlight[name] then
+        autoBrewInFlight[name] = math.max(0, autoBrewInFlight[name] - 1)
+    end
 end)
 
 Workspace.Deployables.ChildRemoved:Connect(function(deployable)
