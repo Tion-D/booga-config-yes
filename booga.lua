@@ -300,7 +300,7 @@ end
 
 local function getFruitRestoreAmount(nameOrId)
     local id = ItemIDS[nameOrId] or nameOrId
-    local data = ItemData[id] or (ItemIDS[id] and ItemData[ItemIDS[id]])  -- try inverse if needed
+    local data = ItemData[id] or (ItemIDS[id] and ItemData[ItemIDS[id]])
     if not data then return nil end
 
     return data.food or data.hunger or data.restore or data.restoreValue or data.heal or nil
@@ -508,7 +508,6 @@ local function deleteItems()
         end
     end
 end
-
 
 local function monitorItems()
     while deleteEnabled do
@@ -2585,7 +2584,7 @@ Tabs.Extra:AddToggle("AutohittWithResources", {
         if value then
             task.spawn(function()
                 while interactingWithResources do
-                    interactWithNearbyResources(25)
+                    interactWithNearbyResources(100)
                     task.wait()
                 end
             end)
