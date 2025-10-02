@@ -104,6 +104,8 @@ local pickupCoinTask = false
 local pickupGoldTask = false
 local pickupRawGoldTask = false
 local pickupRawGold = false
+local pickupAllItemsTask = false
+local pickupAllItems = false
 local replacePotEnabled = false
 local trackingActive = false
 local startAmounts, endAmounts = nil, nil
@@ -123,6 +125,11 @@ local BASE_ICE_CUBES = 3
 local ICE_MELT_WAIT = 10
 local autoBrewGen = 0
 local AUTO_BREW_QCAP = 200
+
+local HUNGER_CAP = 100
+local EAT_AT_OR_BELOW = 90
+local LOOP_WAIT_SECONDS = 1
+local POST_EAT_COOLDOWN = 2.0 
 
 local POTION_RECIPES = {
     ["Poison"] = { ["Prickly Pear"] = 3, ["Magnetite Bar"] = 1 },
@@ -291,20 +298,60 @@ local function findFruitIndex(fruitName)
     return nil
 end
 
+local function getFruitRestoreAmount(nameOrId)
+    local id = ItemIDS[nameOrId] or nameOrId
+    local data = ItemData[id] or (ItemIDS[id] and ItemData[ItemIDS[id]])  -- try inverse if needed
+    if not data then return nil end
+
+    return data.food or data.hunger or data.restore or data.restoreValue or data.heal or nil
+end
+
+local function getHunger()
+    local stats = GameUtil and GameUtil.Data and GameUtil.Data.stats
+    return stats and stats.food or nil
+end
+
+local lastEatTime = 0
+local function canEatNow()
+    return (time() - lastEatTime) >= POST_EAT_COOLDOWN
+end
+
+local function eatFruitOnce(idx)
+    Packets.UseBagItem.send(idx)
+    lastEatTime = time()
+end
+
+local function willOvereat(currentHunger, restore)
+    if not restore then return false end
+    return (currentHunger + restore) > HUNGER_CAP
+end
+
 local function autoEatSelectedFruit()
     local function autoEatLoop()
         while autoEat do
-            if fruit then
-                local fruitIndex = findFruitIndex(fruit)
-                if fruitIndex then
-                    Packets.UseBagItem.send(fruitIndex)
-                else
-                    Notify("Selected fruit not found in inventory:", fruit)
-                end
-            else
+            local current = getHunger()
+
+            if not fruit then
                 Notify("No fruit selected for auto-eat.")
+            elseif not current then
+                Notify("Hunger value unavailable right now.")
+            else
+                if current <= EAT_AT_OR_BELOW and canEatNow() then
+                    local fruitIndex = findFruitIndex(fruit)
+                    if fruitIndex then
+                        local restore = getFruitRestoreAmount(fruit)
+
+                        if restore and willOvereat(current, restore) then
+                        else
+                            eatFruitOnce(fruitIndex)
+                        end
+                    else
+                        Notify("Selected fruit not found in inventory:", tostring(fruit))
+                    end
+                end
             end
-            task.wait(20)
+
+            task.wait(LOOP_WAIT_SECONDS)
         end
     end
     task.spawn(autoEatLoop)
@@ -615,6 +662,19 @@ local function pickupCoins()
                 if item.Name == "Coin2" then
                     Packets.Pickup.send(item:GetAttribute("EntityID"))
                 end
+            end
+        end
+        task.wait(0.5)
+    end
+end
+
+local function pickupAllItem()
+    while pickupAllItems do
+        local Items = Workspace:FindFirstChild("Items")
+        if Items then
+            for _, item in ipairs(Items:GetChildren()) do
+                Packets.Pickup.send(item:GetAttribute("EntityID"))
+                task.wait()
             end
         end
         task.wait(0.5)
@@ -2422,7 +2482,6 @@ Tabs.PositionsTab:AddSlider("TweenSpeedSlider", {
     end
 })
 
-Tabs.Extra:AddSection("Extra")
 
 Tabs.Extra:AddSection("Auto Brew Potions")
 
@@ -2449,6 +2508,19 @@ Tabs.Extra:AddButton({
             Notify("Auto Brew", "Brewed " .. selectedPotion .. " once.")
         else
             Notify("Auto Brew", "Failed to brew potion.")
+        end
+    end
+})
+
+Tabs.Extra:AddToggle("PickupItems", {
+    Title = "Pickup everything",
+    Default = false,
+    Callback = function(value)
+        pickupAllItems = value
+        if value then
+            pickupAllItemsTask = task.spawn(pickupAllItem)
+        else
+            pcall(task.cancel, pickupAllItemsTask)
         end
     end
 })
