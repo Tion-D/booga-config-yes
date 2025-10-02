@@ -12,7 +12,7 @@ local function UName(id)
 end
 
 local function Request(url, body)
-    local req = request or http_request or syn and syn.request
+    local req = (http_request or request or (syn and syn.request))
     if req then
         return req({
             Url = url,
