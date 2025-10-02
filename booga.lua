@@ -1491,7 +1491,7 @@ local function noclipDoors(enabled)
             v.Door.CanCollide = not enabled
         end
     end
-    for _, v in workspace.resources:GetChildren() do
+    for _, v in workspace.Resources:GetChildren() do
         if v.Name == "Old Boards" then
             v:Destroy()
         end
