@@ -304,7 +304,7 @@ local function autoEatSelectedFruit()
             else
                 Notify("No fruit selected for auto-eat.")
             end
-            task.wait(10)
+            task.wait(20)
         end
     end
     task.spawn(autoEatLoop)
