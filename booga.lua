@@ -1,14 +1,17 @@
 setthreadidentity(5)
 local RS = game:GetService("ReplicatedStorage")
-local ClientAnimalReady = RS:WaitForChild("ClientAnimalReady")
-local old; old = hookfunction(ClientAnimalReady.FireServer, function(...)
-    local remote = select(1, ...) 
-    if not checkcaller() and remote == ClientAnimalReady then
+local clientAnimalReadyRemote = RS:WaitForChild("ClientAnimalReady")
+
+local oldFireServer = nil
+oldFireServer = hookmetamethod(clientAnimalReadyRemote, "__namecall", newcclosure(function(self, ...)
+    local method = getnamecallmethod()
+
+    if self == clientAnimalReadyRemote and method == "FireServer" then
         warn("Blocked")
-        return nil
+        return
     end
-    return old(...)
-end)
+    return oldFireServer(self, ...)
+end))
 
 local PathfindingService = game:GetService("PathfindingService")
 local TweenService = game:GetService("TweenService")
@@ -639,23 +642,23 @@ local function pressCoins()
     while CoinpressEnabled do
         local deployable = GetDeployable("Coin Press", 25)
         local entityID = deployable and deployable:GetAttribute("EntityID")
-        if not entityID then task.wait(0.3) continue end
+        if not entityID then task.wait() continue end
 
         local goldAmt = tonumber((GetQuantity("Gold") or 0)) or 0
-        if goldAmt == 0 then task.wait(0.3) continue end
+        if goldAmt == 0 then task.wait() continue end
 
         local before = goldAmt
         Packets.InteractStructure.send({ entityID = entityID, itemID = ItemIDS.Gold })
-        task.wait(0.05)
+        task.wait()
 
         local t0 = os.clock()
         repeat
-            task.wait(0.1)
+            task.wait()
             goldAmt = tonumber((GetQuantity("Gold") or 0)) or 0
         until goldAmt < before or (os.clock() - t0) > 1.2
 
         if goldAmt >= before then
-            task.wait(0.5)
+            task.wait()
         end
     end
 end
