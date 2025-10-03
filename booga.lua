@@ -50,6 +50,7 @@ local autoEat
 local noclip
 local fruitJumpEnabled = false
 local fruitJumpThread = nil
+local bushesVisible = true
 
 local tween2
 local autoHealEnabled
@@ -58,6 +59,10 @@ local campEnabled
 local coinEnabled
 local essenceEnabled
 local pickUpGoldEnabled
+
+local selectedDropItem = nil
+local autoDropEnabled = false
+local autoDropTask
 
 local pickUpPressedGold
 local CoinpressEnabled
@@ -1721,6 +1726,19 @@ local function autoFarmGoldPot()
     end
 end
 
+local function getInventoryNameList()
+    local seen, list = {}, {}
+    for _, data in next, GameUtil.getData().inventory do
+        local n = data and data.name
+        if n and not seen[n] then
+            seen[n] = true
+            table.insert(list, n)
+        end
+    end
+    table.sort(list)
+    return list
+end
+
 local function findItemIndexByName(itemName)
     for index, data in next, GameUtil.getData().inventory do
         if data.name == itemName then
@@ -1858,6 +1876,43 @@ local function brewPotionOnce(potionName)
     return true
 end
 
+local function autoDropLoop()
+    while autoDropEnabled do
+        if not selectedDropItem then
+            Notify("Dropper", "Select an item first.")
+            break
+        end
+
+        local qty, idx = GetQuantity(selectedDropItem)
+        qty = tonumber(qty or 0)
+
+        if not idx or qty <= 0 then
+            Notify("Dropper", "No more " .. tostring(selectedDropItem) .. " to drop.")
+            break
+        end
+
+        Packets.DropBagItem.send(idx)
+        task.wait()
+    end
+
+    autoDropEnabled = false
+end
+
+local function setBushVisibility(visible)
+    bushesVisible = visible
+    currentBushName = (fruit or "Bloodfruit") .. " Bush"
+    for _, bush in ipairs(Workspace:GetChildren()) do
+        if bush:IsA("Model") and bush.Name == currentBushName then
+            for _, part in bush:GetDescendants() do
+                if part:IsA("BasePart") then
+                    part.Transparency = visible and 0 or 1
+                    part.CanCollide = true
+                end
+            end
+        end
+    end
+end
+
 local Fluent = loadstring(game:HttpGet("https://github.com/dawid-scripts/Fluent/releases/latest/download/main.lua"))()
 local SaveManager = loadstring(game:HttpGet("https://raw.githubusercontent.com/dawid-scripts/Fluent/master/Addons/SaveManager.lua"))()
 local InterfaceManager = loadstring(game:HttpGet("https://raw.githubusercontent.com/dawid-scripts/Fluent/master/Addons/InterfaceManager.lua"))()
@@ -1897,6 +1952,8 @@ Tabs.Main:AddDropdown("Fruit", {
     Default = fruit,
     Callback = function(value)
         fruit = value
+        currentBushName = fruit .. " Bush"
+        setBushVisibility(bushesVisible)
     end
 })
 
@@ -1947,6 +2004,14 @@ Tabs.Main:AddToggle("FruitJump", {
     Default = false,
     Callback = function(v)
         fruitJump(v)
+    end
+})
+
+Tabs.Main:AddToggle("BushVisibility", {
+    Title = "Hide the Selected Fruit Bushes",
+    Default = true,
+    Callback = function(v)
+        setBushVisibility(v)
     end
 })
 
@@ -2481,7 +2546,6 @@ Tabs.PositionsTab:AddSlider("TweenSpeedSlider", {
     end
 })
 
-
 Tabs.Extra:AddSection("Auto Brew Potions")
 
 Tabs.Extra:AddDropdown("PotionSelect", {
@@ -2662,6 +2726,50 @@ Tabs.Extra:AddToggle("NoClip", {
 --         applySkins(value)
 --     end
 -- })
+
+Tabs.Extra:AddSection("Inventory Dropper")
+
+local DropInvDD = Tabs.Extra:AddDropdown("InvDropSelect", {
+    Title = "Select Item to Drop",
+    Values = getInventoryNameList(),
+    Default = nil,
+    Callback = function(v)
+        selectedDropItem = v
+    end
+})
+
+Tabs.Extra:AddButton({
+    Title = "Refresh Inventory List",
+    Callback = function()
+        local values = getInventoryNameList()
+        if DropInvDD and DropInvDD.SetValues then
+            DropInvDD:SetValues(values)
+        else
+            Notify("Dropper", "Could not refresh dropdown (SetValues missing).")
+        end
+    end
+})
+
+Tabs.Extra:AddToggle("AutoDropSelected", {
+    Title = "Auto Drop Selected",
+    Default = false,
+    Callback = function(v)
+        autoDropEnabled = v
+        if v then
+            if not selectedDropItem then
+                autoDropEnabled = false
+                Notify("Dropper", "Select an item first.")
+                return
+            end
+            autoDropTask = task.spawn(autoDropLoop)
+        else
+            if autoDropTask then
+                pcall(task.cancel, autoDropTask)
+                autoDropTask = nil
+            end
+        end
+    end
+})
 
 Tabs.Extra:AddSection("Make Farm (turn off cam lock, made by Zam)")
 
@@ -2865,6 +2973,23 @@ Conns.itemsChildAdded = Workspace.Items.ChildAdded:Connect(function(item)
 
     if autoBrewInFlight and autoBrewInFlight[name] then
         autoBrewInFlight[name] = math.max(0, autoBrewInFlight[name] - 1)
+    end
+end)
+
+Workspace.ChildAdded:Connect(function(child)
+    if child:IsA("Model") and child.Name == currentBushName then
+        for _, part in child:GetDescendants() do
+            if part:IsA("BasePart") then
+                part.Transparency = bushesVisible and 0 or 1
+                part.CanCollide = true
+            end
+        end
+        child.DescendantAdded:Connect(function(part)
+            if part:IsA("BasePart") then
+                part.Transparency = bushesVisible and 0 or 1
+                part.CanCollide = true
+            end
+        end)
     end
 end)
 
