@@ -1,13 +1,15 @@
 setthreadidentity(5)
-local old; old = hookmetamethod(game, "__namecall", function(self, ...)
-    if getnamecallmethod() == "Fire" and self.Name == "SendEmbed" and not checkcaller() then 
-        return "shut up"
-    end 
-
-    return old(self, ...)
+local RS = game:GetService("ReplicatedStorage")
+local ClientAnimalReady = RS:WaitForChild("ClientAnimalReady")
+local old; old = hookfunction(ClientAnimalReady.FireServer, function(...)
+    local remote = select(1, ...) 
+    if not checkcaller() and remote == ClientAnimalReady then
+        warn("Blocked")
+        return nil
+    end
+    return old(...)
 end)
 
-local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local PathfindingService = game:GetService("PathfindingService")
 local TweenService = game:GetService("TweenService")
 local Workspace = game:GetService("Workspace")
@@ -18,11 +20,11 @@ local RunService = game:GetService("RunService")
 local CurrentCamera = workspace.CurrentCamera
 local LocalPlayerMouse = Players.LocalPlayer:GetMouse()
 
-local GameUtil = require(ReplicatedStorage.Modules.GameUtil)
-local ItemData = require(ReplicatedStorage.Modules.ItemData)
-local ItemIDS = require(ReplicatedStorage.Modules.ItemIDS)
-local Packets = require(ReplicatedStorage.Modules.Packets)
-local SkinHandler = require(ReplicatedStorage.Game.skins)
+local GameUtil = require(RS.Modules.GameUtil)
+local ItemData = require(RS.Modules.ItemData)
+local ItemIDS = require(RS.Modules.ItemIDS)
+local Packets = require(RS.Modules.Packets)
+local SkinHandler = require(RS.Game.skins)
 
 local Character = Players.LocalPlayer.Character or Players.LocalPlayer.CharacterAdded:Wait()
 local LocalPlayer = game.Players.LocalPlayer
