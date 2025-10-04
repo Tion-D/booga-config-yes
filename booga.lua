@@ -1268,6 +1268,42 @@ local function interactWithNearbyResources(radius)
     end
 end
 
+local RAY_PARAMS = RaycastParams.new()
+RAY_PARAMS.FilterType = Enum.RaycastFilterType.Exclude
+RAY_PARAMS.IgnoreWater = true
+
+local function isBlockingHit(hit: RaycastResult?): boolean
+    if not hit then return false end
+    local inst = hit.Instance
+    if inst and inst:IsA("Terrain") then return true end
+    if hit.Material ~= Enum.Material.Air and (not inst:IsA("BasePart") or inst.CanCollide ~= false) then
+        return true
+    end
+    return false
+end
+
+local function clearPath(p0: Vector3, p1: Vector3, ignoreList: {Instance}?): boolean
+    local dir = p1 - p0
+    if dir.Magnitude < 1 then return true end
+
+    RAY_PARAMS.FilterDescendantsInstances = ignoreList or {}
+    local offsets = {
+        Vector3.new(0, 2, 0),
+        Vector3.new(0, 4, 0),
+        Vector3.new(0, 0, 0),
+    }
+
+    for _, off in ipairs(offsets) do
+        local a = p0 + off
+        local b = p1 + off
+        local hit = Workspace:Raycast(a, b - a, RAY_PARAMS)
+        if isBlockingHit(hit) then
+            return false
+        end
+    end
+    return true
+end
+
 local function startWalking()
     if not Humanoid or not Humanoid.Parent then
         Notify("Humanoid not found, reinitializing.")
@@ -1360,26 +1396,63 @@ local function startTweening()
     local TELEPORT_BACK_DINC = 8
     local TELEPORT_STEP_JUMP = 15
 
+    RAY_PARAMS.FilterDescendantsInstances = { Character }
+
     while tweeningEnabled do
         local rp = Root.Position
-        local i, bestD = 1, math.huge
+
+        local nearestClearIdx, nearestClearDist = nil, math.huge
+        local nearestAnyIdx, nearestAnyDist = 1, math.huge
+
         for j = 1, #positionList do
             local p = positionList[j]
             if p and p.X and p.Y and p.Z then
-                local d = (rp - Vector3.new(p.X, p.Y, p.Z)).Magnitude
-                if d < bestD then i, bestD = j, d end
+                local tp = Vector3.new(p.X, p.Y, p.Z)
+                local d = (rp - tp).Magnitude
+
+                if d < nearestAnyDist then
+                    nearestAnyIdx, nearestAnyDist = j, d
+                end
+
+                if d < nearestClearDist and clearPath(rp, tp, { Character }) then
+                    nearestClearIdx, nearestClearDist = j, d
+                end
             end
         end
 
+        local i = nearestClearIdx or nearestAnyIdx
+
         for _ = 1, #positionList do
             if not tweeningEnabled then break end
+
             local pos = positionList[i]
             if not (pos and pos.X and pos.Y and pos.Z) then
-                Notify("Invalid position data.")
-                break
+                Notify("Invalid position data."); break
             end
 
             local targetPos = Vector3.new(pos.X, pos.Y, pos.Z)
+
+            if not clearPath(Root.Position, targetPos, { Character }) then
+                local rp2 = Root.Position
+                local bestIdx, bestDist = nil, math.huge
+                for k = 1, #positionList do
+                    local p2 = positionList[k]
+                    if p2 and p2.X and p2.Y and p2.Z then
+                        local tp2 = Vector3.new(p2.X, p2.Y, p2.Z)
+                        local d2 = (rp2 - tp2).Magnitude
+                        if d2 < bestDist and clearPath(rp2, tp2, { Character }) then
+                            bestIdx, bestDist = k, d2
+                        end
+                    end
+                end
+                if bestIdx then
+                    i = bestIdx
+                    targetPos = Vector3.new(positionList[i].X, positionList[i].Y, positionList[i].Z)
+                else
+                    break
+                end
+            end
+
             local duration = math.max(0.05, (Root.Position - targetPos).Magnitude / walkSpeed)
             local ti = TweenInfo.new(duration, Enum.EasingStyle.Linear)
 
@@ -1434,7 +1507,25 @@ local function startTweening()
             if tween then tween:Cancel(); tween = nil end
 
             if restartNearest then
-                Root.Anchored = false
+                local rp2 = Root.Position
+                local bestIdx, bestDist = nil, math.huge
+                for k = 1, #positionList do
+                    local p2 = positionList[k]
+                    if p2 and p2.X and p2.Y and p2.Z then
+                        local tp2 = Vector3.new(p2.X, p2.Y, p2.Z)
+                        local d2 = (rp2 - tp2).Magnitude
+                        if d2 < bestDist and clearPath(rp2, tp2, { Character }) then
+                            bestIdx, bestDist = k, d2
+                        end
+                    end
+                end
+
+                if bestIdx then
+                    i = bestIdx
+                else
+                    Root.Anchored = false
+                end
+
                 task.wait(0.15)
                 break
             end
