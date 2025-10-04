@@ -1376,7 +1376,6 @@ local function startWalking()
     end
 
 end
-
 local function startTweening()
     if not Humanoid or not Humanoid.Parent then
         Notify("Humanoid not found, reinitializing.")
@@ -1389,75 +1388,38 @@ local function startTweening()
         return
     end
 
-    local REACH_RADIUS = 4
-    local MAX_TRAVEL_SECS = 15
-    local NO_PROGRESS_SECS = 2.5
-    local MIN_IMPROVE_STUDS = 0.75
+    local REACH_RADIUS       = 4
+    local MAX_TRAVEL_SECS    = 20
+    local NO_PROGRESS_SECS   = 2.5
+    local MIN_IMPROVE_STUDS  = 0.75
     local TELEPORT_BACK_DINC = 8
     local TELEPORT_STEP_JUMP = 15
 
-    RAY_PARAMS.FilterDescendantsInstances = { Character }
-
     while tweeningEnabled do
         local rp = Root.Position
-
-        local nearestClearIdx, nearestClearDist = nil, math.huge
-        local nearestAnyIdx, nearestAnyDist = 1, math.huge
-
+        local i, bestD = 1, math.huge
         for j = 1, #positionList do
             local p = positionList[j]
             if p and p.X and p.Y and p.Z then
-                local tp = Vector3.new(p.X, p.Y, p.Z)
-                local d = (rp - tp).Magnitude
-
-                if d < nearestAnyDist then
-                    nearestAnyIdx, nearestAnyDist = j, d
-                end
-
-                if d < nearestClearDist and clearPath(rp, tp, { Character }) then
-                    nearestClearIdx, nearestClearDist = j, d
-                end
+                local d = (rp - Vector3.new(p.X, p.Y, p.Z)).Magnitude
+                if d < bestD then i, bestD = j, d end
             end
         end
 
-        local i = nearestClearIdx or nearestAnyIdx
-
         for _ = 1, #positionList do
             if not tweeningEnabled then break end
-
             local pos = positionList[i]
             if not (pos and pos.X and pos.Y and pos.Z) then
-                Notify("Invalid position data."); break
+                Notify("Invalid position data.")
+                break
             end
 
             local targetPos = Vector3.new(pos.X, pos.Y, pos.Z)
-
-            if not clearPath(Root.Position, targetPos, { Character }) then
-                local rp2 = Root.Position
-                local bestIdx, bestDist = nil, math.huge
-                for k = 1, #positionList do
-                    local p2 = positionList[k]
-                    if p2 and p2.X and p2.Y and p2.Z then
-                        local tp2 = Vector3.new(p2.X, p2.Y, p2.Z)
-                        local d2 = (rp2 - tp2).Magnitude
-                        if d2 < bestDist and clearPath(rp2, tp2, { Character }) then
-                            bestIdx, bestDist = k, d2
-                        end
-                    end
-                end
-                if bestIdx then
-                    i = bestIdx
-                    targetPos = Vector3.new(positionList[i].X, positionList[i].Y, positionList[i].Z)
-                else
-                    break
-                end
-            end
-
             local duration = math.max(0.05, (Root.Position - targetPos).Magnitude / walkSpeed)
             local ti = TweenInfo.new(duration, Enum.EasingStyle.Linear)
 
             if tweenConn then tweenConn:Disconnect(); tweenConn = nil end
-            if tween then tween:Cancel() end
+            if tween     then tween:Cancel() end
 
             tweenInfo = { MaxSpeed = Humanoid.WalkSpeed, CFrame = CFrame.new(targetPos) }
             tween = TweenService:Create(Root, ti, { CFrame = CFrame.new(targetPos) })
@@ -1500,32 +1462,14 @@ local function startTweening()
 
                 lastPoll = tick()
                 lastDist = curDist
-                lastPos = curPos
+                lastPos  = curPos
             end
 
             if tweenConn then tweenConn:Disconnect(); tweenConn = nil end
             if tween then tween:Cancel(); tween = nil end
 
             if restartNearest then
-                local rp2 = Root.Position
-                local bestIdx, bestDist = nil, math.huge
-                for k = 1, #positionList do
-                    local p2 = positionList[k]
-                    if p2 and p2.X and p2.Y and p2.Z then
-                        local tp2 = Vector3.new(p2.X, p2.Y, p2.Z)
-                        local d2 = (rp2 - tp2).Magnitude
-                        if d2 < bestDist and clearPath(rp2, tp2, { Character }) then
-                            bestIdx, bestDist = k, d2
-                        end
-                    end
-                end
-
-                if bestIdx then
-                    i = bestIdx
-                else
-                    Root.Anchored = false
-                end
-
+                Root.Anchored = false
                 task.wait(0.15)
                 break
             end
@@ -1568,8 +1512,9 @@ local function startTweening()
     end
 
     if tweenConn then tweenConn:Disconnect(); tweenConn = nil end
-    if tween then tween:Cancel(); tween = nil end
+    if tween     then tween:Cancel(); tween = nil end
 end
+
 
 
 local function autoJump()
