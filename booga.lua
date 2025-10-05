@@ -1389,6 +1389,7 @@ local function startWalking()
         end
     end
 end
+local _tweenIdx = nil
 
 local function startTweening()
     if not Humanoid or not Humanoid.Parent then
@@ -1402,26 +1403,37 @@ local function startTweening()
         return
     end
 
+    if not _tweenIdx then
+        _tweenIdx = NearestReachableIndex(Root.Position) or 1
+    end
+
     local REACH_RADIUS, MAX_TRAVEL_SECS = 4, 30
     local NO_PROGRESS_SECS, MIN_IMPROVE_STUDS = 2.5, 0.75
     local TELEPORT_BACK_DINC, TELEPORT_STEP_JUMP = 8, 15
 
     while tweeningEnabled do
-        local i = NearestReachableIndex(Root.Position)
-        if not i then
-            Notify("No reachable positions (blocked by terrain).")
-            break
+        if _tweenIdx < 1 or _tweenIdx > #positionList then
+            _tweenIdx = 1
         end
 
         for _ = 1, #positionList do
             if not tweeningEnabled then break end
 
-            local pos = positionList[i]
-            if not (pos and pos.X) then break end
+            local pos = positionList[_tweenIdx]
+            if not pos or not pos.X then
+                _tweenIdx = (_tweenIdx % #positionList) + 1
+                continue
+            end
 
             local targetPos = Vector3.new(pos.X, pos.Y, pos.Z)
+
             if PathBlocked(Root.Position, targetPos) then
-                i = NearestReachableIndex(Root.Position) or ((i % #positionList) + 1)
+                local tryNearest = NearestReachableIndex(Root.Position)
+                if tryNearest then
+                    _tweenIdx = tryNearest
+                else
+                    _tweenIdx = (_tweenIdx % #positionList) + 1
+                end
                 continue
             end
 
@@ -1447,18 +1459,21 @@ local function startTweening()
 
             while tweeningEnabled and not completed do
                 task.wait(0.2)
-
                 local curPos = Root.Position
                 local curDist = (curPos - targetPos).Magnitude
 
                 if curDist <= REACH_RADIUS then completed = true break end
+
                 local stepJump = (curPos - lastPos).Magnitude
                 if (curDist - lastDist) >= TELEPORT_BACK_DINC or stepJump >= TELEPORT_STEP_JUMP then
-                    restartNearest = true break
+                    restartNearest = true
+                    break
                 end
+
                 if (tick() - t0) > MAX_TRAVEL_SECS
                     or ((tick() - lastPoll) > NO_PROGRESS_SECS and (lastDist - curDist) < MIN_IMPROVE_STUDS) then
-                    restartNearest = true break
+                    restartNearest = true
+                    break
                 end
 
                 lastPoll, lastDist, lastPos = tick(), curDist, curPos
@@ -1468,13 +1483,13 @@ local function startTweening()
             if tween then tween:Cancel(); tween = nil end
 
             if restartNearest then
-                Root.Anchored = false
-                task.wait(0.15)
+                _tweenIdx = NearestReachableIndex(Root.Position) or ((_tweenIdx % #positionList) + 1)
                 break
+            else
+                _tweenIdx = (_tweenIdx % #positionList) + 1
             end
 
-            i = (i % #positionList) + 1
-            task.wait(0.1)
+            task.wait(0.05)
         end
 
         if campEnabled and chest and chest.Contents:FindFirstChild("Gold") then
@@ -1487,7 +1502,6 @@ local function startTweening()
                 end
             end
         end
-
         if pickUpGoldEnabled and chest then
             for _, v in next, chest.Contents:GetChildren() do
                 if v.Name == "Gold" then
@@ -1495,7 +1509,6 @@ local function startTweening()
                 end
             end
         end
-
         if pressEnabled and chest then
             local deployable = GetDeployable("Coin Press", 25)
             if deployable then
@@ -1513,6 +1526,7 @@ local function startTweening()
     if tweenConn then tweenConn:Disconnect(); tweenConn = nil end
     if tween then tween:Cancel(); tween = nil end
 end
+
 
 
 local function autoJump()
