@@ -1404,7 +1404,6 @@ local function NearestReachableIndex(fromPos: Vector3)
     end
     return bestI
 end
-
 local function startTweening()
     if not Humanoid or not Humanoid.Parent then
         Notify("Humanoid not found, reinitializing.")
@@ -1420,12 +1419,25 @@ local function startTweening()
     local REACH_RADIUS, MAX_TRAVEL_SECS = 4, 30
     local NO_PROGRESS_SECS, MIN_IMPROVE_STUDS = 2.5, 0.75
     local TELEPORT_BACK_DINC, TELEPORT_STEP_JUMP = 8, 15
+    local NO_REACHABLE_BACKOFF = 0.6
+    local HARD_RECOVER_Y = 6
+
+    local function hardRecover()
+        Root.Anchored = false
+        if Humanoid.Sit then Humanoid.Sit = false end
+        pcall(function() Humanoid:ChangeState(Enum.HumanoidStateType.Jumping) end)
+        Root.CFrame = Root.CFrame + Vector3.new(0, HARD_RECOVER_Y, 0)
+        task.wait(0.2)
+    end
 
     while tweeningEnabled do
         local i = NearestReachableIndex(Root.Position)
         if not i then
-            Notify("No reachable positions (blocked by terrain).")
-            break
+            Notify("No reachable positions (blocked). Retrying…")
+            hardRecover()
+            task.wait(NO_REACHABLE_BACKOFF)
+            if not tweeningEnabled then break end
+            continue
         end
 
         for _ = 1, #positionList do
@@ -1436,11 +1448,13 @@ local function startTweening()
 
             local targetPos = Vector3.new(pos.X, pos.Y, pos.Z)
             if PathBlocked(Root.Position, targetPos) then
-                i = NearestReachableIndex(Root.Position) or ((i % #positionList) + 1)
+                local nextIdx = NearestReachableIndex(Root.Position)
+                i = nextIdx or ((i % #positionList) + 1)
                 continue
             end
 
-            local duration = math.max(0.05, (Root.Position - targetPos).Magnitude / walkSpeed)
+            local dist = (Root.Position - targetPos).Magnitude
+            local duration = math.max(0.05, dist / walkSpeed)
             local ti = TweenInfo.new(duration, Enum.EasingStyle.Linear)
 
             if tweenConn then tweenConn:Disconnect(); tweenConn = nil end
@@ -1459,6 +1473,7 @@ local function startTweening()
             local t0, lastPoll = tick(), tick()
             local lastDist = (Root.Position - targetPos).Magnitude
             local lastPos = Root.Position
+            local globalStallT0, GLOBAL_STALL_SECS = tick(), 8
 
             while tweeningEnabled and not completed do
                 task.wait(0.2)
@@ -1467,13 +1482,22 @@ local function startTweening()
                 local curDist = (curPos - targetPos).Magnitude
 
                 if curDist <= REACH_RADIUS then completed = true break end
+
                 local stepJump = (curPos - lastPos).Magnitude
                 if (curDist - lastDist) >= TELEPORT_BACK_DINC or stepJump >= TELEPORT_STEP_JUMP then
-                    restartNearest = true break
+                    restartNearest = true
+                    break
                 end
+
                 if (tick() - t0) > MAX_TRAVEL_SECS
                     or ((tick() - lastPoll) > NO_PROGRESS_SECS and (lastDist - curDist) < MIN_IMPROVE_STUDS) then
-                    restartNearest = true break
+                    restartNearest = true
+                    break
+                end
+
+                if (tick() - globalStallT0) > GLOBAL_STALL_SECS and (lastDist - curDist) < 1 then
+                    hardRecover()
+                    globalStallT0 = tick()
                 end
 
                 lastPoll, lastDist, lastPos = tick(), curDist, curPos
@@ -1483,51 +1507,61 @@ local function startTweening()
             if tween then tween:Cancel(); tween = nil end
 
             if restartNearest then
-                Root.Anchored = false
-                task.wait(0.15)
+                hardRecover()
                 break
             end
 
             i = (i % #positionList) + 1
-            task.wait(0.1)
+            task.wait(0.05)
         end
 
-        if campEnabled and chest and chest.Contents:FindFirstChild("Gold") then
-            for _, v in next, GetDeployable("Campfire", 25, true) do
-                if v.deployable.Board.Billboard.Backdrop.TextLabel.Text <= "10" then
-                    local itemID = GetFuel()
-                    if itemID then
-                        Packets.InteractStructure.send({ entityID = v.deployable:GetAttribute("EntityID"), itemID = itemID })
+        if campEnabled and chest then
+            pcall(function()
+                local gold = chest.Contents:FindFirstChild("Gold")
+                if gold then
+                    for _, v in next, GetDeployable("Campfire", 25, true) do
+                        local t = v and v.deployable and v.deployable.Board and v.deployable.Board.Billboard
+                        if t and t.Backdrop and t.Backdrop.TextLabel and t.Backdrop.TextLabel.Text <= "10" then
+                            local itemID = GetFuel()
+                            if itemID then
+                                Packets.InteractStructure.send({ entityID = v.deployable:GetAttribute("EntityID"), itemID = itemID })
+                            end
+                        end
                     end
                 end
-            end
+            end)
         end
 
         if pickUpGoldEnabled and chest then
-            for _, v in next, chest.Contents:GetChildren() do
-                if v.Name == "Gold" then
-                    Packets.Pickup.send(v:GetAttribute("EntityID"))
-                end
-            end
-        end
-
-        if pressEnabled and chest then
-            local deployable = GetDeployable("Coin Press", 25)
-            if deployable then
+            pcall(function()
                 for _, v in next, chest.Contents:GetChildren() do
                     if v.Name == "Gold" then
                         Packets.Pickup.send(v:GetAttribute("EntityID"))
-                        Packets.InteractStructure.send({ entityID = deployable:GetAttribute("EntityID"), itemID = ItemIDS[v.Name] })
-                        task.wait(0.2)
                     end
                 end
-            end
+            end)
+        end
+
+        if pressEnabled and chest then
+            pcall(function()
+                local deployable = GetDeployable("Coin Press", 25)
+                if deployable then
+                    for _, v in next, chest.Contents:GetChildren() do
+                        if v.Name == "Gold" then
+                            Packets.Pickup.send(v:GetAttribute("EntityID"))
+                            Packets.InteractStructure.send({ entityID = deployable:GetAttribute("EntityID"), itemID = ItemIDS[v.Name] })
+                            task.wait(0.2)
+                        end
+                    end
+                end
+            end)
         end
     end
 
     if tweenConn then tweenConn:Disconnect(); tweenConn = nil end
     if tween then tween:Cancel(); tween = nil end
 end
+
 
 
 
