@@ -1389,20 +1389,6 @@ local function startWalking()
         end
     end
 end
-local GROUND_RAY = RaycastParams.new()
-GROUND_RAY.FilterType = Enum.RaycastFilterType.Exclude
-GROUND_RAY.IgnoreWater = true
-
-local function SnapToGround(pos: Vector3): Vector3
-    GROUND_RAY.FilterDescendantsInstances = {Character}
-    local origin = pos + Vector3.new(0, 80, 0)
-    local hit = workspace:Raycast(origin, Vector3.new(0, -600, 0), GROUND_RAY)
-    if not hit then return pos end
-    local hh = (Humanoid and Humanoid.HipHeight) or 2
-    local halfRoot = (Root and Root.Size.Y or 2) * 0.5
-    local y = hit.Position.Y + hh + halfRoot
-    return Vector3.new(pos.X, y, pos.Z)
-end
 
 local function startTweening()
     if not Humanoid or not Humanoid.Parent then
@@ -1422,23 +1408,22 @@ local function startTweening()
 
     while tweeningEnabled do
         local i = NearestReachableIndex(Root.Position)
-        if not i then Notify("No reachable positions (blocked by terrain)."); break end
+        if not i then
+            Notify("No reachable positions (blocked by terrain).")
+            break
+        end
 
         for _ = 1, #positionList do
             if not tweeningEnabled then break end
+
             local pos = positionList[i]
             if not (pos and pos.X) then break end
 
-            local rawTarget = Vector3.new(pos.X, pos.Y, pos.Z)
-            if PathBlocked(Root.Position, rawTarget) then
+            local targetPos = Vector3.new(pos.X, pos.Y, pos.Z)
+            if PathBlocked(Root.Position, targetPos) then
                 i = NearestReachableIndex(Root.Position) or ((i % #positionList) + 1)
                 continue
             end
-            local targetPos = SnapToGround(rawTarget)
-
-            local look = (Vector3.new(targetPos.X, Root.Position.Y, targetPos.Z) - Root.Position).Unit
-            if look.Magnitude < 0.1 then look = Root.CFrame.LookVector end
-            local goalCFrame = CFrame.new(targetPos, targetPos + Vector3.new(look.X, 0, look.Z))
 
             local duration = math.max(0.05, (Root.Position - targetPos).Magnitude / walkSpeed)
             local ti = TweenInfo.new(duration, Enum.EasingStyle.Linear)
@@ -1446,8 +1431,8 @@ local function startTweening()
             if tweenConn then tweenConn:Disconnect(); tweenConn = nil end
             if tween then tween:Cancel() end
 
-            tweenInfo = { MaxSpeed = Humanoid.WalkSpeed, CFrame = goalCFrame }
-            tween = TweenService:Create(Root, ti, { CFrame = goalCFrame })
+            tweenInfo = { MaxSpeed = Humanoid.WalkSpeed, CFrame = CFrame.new(targetPos) }
+            tween = TweenService:Create(Root, ti, { CFrame = CFrame.new(targetPos) })
 
             local completed, restartNearest = false, false
             tweenConn = tween.Completed:Connect(function()
@@ -1461,23 +1446,18 @@ local function startTweening()
             local lastPos = Root.Position
 
             while tweeningEnabled and not completed do
-                task.wait(0.15)
+                task.wait(0.2)
 
-                local snappedNow = SnapToGround(Root.Position)
-                if math.abs(snappedNow.Y - Root.Position.Y) > 0.05 then
-                    Root.CFrame = CFrame.new(snappedNow, snappedNow + Root.CFrame.LookVector)
-                end
-
-                local curPos  = Root.Position
+                local curPos = Root.Position
                 local curDist = (curPos - targetPos).Magnitude
-                if curDist <= REACH_RADIUS then completed = true break end
 
+                if curDist <= REACH_RADIUS then completed = true break end
                 local stepJump = (curPos - lastPos).Magnitude
                 if (curDist - lastDist) >= TELEPORT_BACK_DINC or stepJump >= TELEPORT_STEP_JUMP then
                     restartNearest = true break
                 end
                 if (tick() - t0) > MAX_TRAVEL_SECS
-                or ((tick() - lastPoll) > NO_PROGRESS_SECS and (lastDist - curDist) < MIN_IMPROVE_STUDS) then
+                    or ((tick() - lastPoll) > NO_PROGRESS_SECS and (lastDist - curDist) < MIN_IMPROVE_STUDS) then
                     restartNearest = true break
                 end
 
@@ -1494,7 +1474,7 @@ local function startTweening()
             end
 
             i = (i % #positionList) + 1
-            task.wait(0.08)
+            task.wait(0.1)
         end
 
         if campEnabled and chest and chest.Contents:FindFirstChild("Gold") then
@@ -1507,6 +1487,7 @@ local function startTweening()
                 end
             end
         end
+
         if pickUpGoldEnabled and chest then
             for _, v in next, chest.Contents:GetChildren() do
                 if v.Name == "Gold" then
@@ -1514,6 +1495,7 @@ local function startTweening()
                 end
             end
         end
+
         if pressEnabled and chest then
             local deployable = GetDeployable("Coin Press", 25)
             if deployable then
@@ -1531,7 +1513,6 @@ local function startTweening()
     if tweenConn then tweenConn:Disconnect(); tweenConn = nil end
     if tween then tween:Cancel(); tween = nil end
 end
-
 
 
 local function autoJump()
