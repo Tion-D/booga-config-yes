@@ -1304,90 +1304,15 @@ local function clearPath(p0: Vector3, p1: Vector3, ignoreList: {Instance}?): boo
     return true
 end
 
-local function startWalking()
-    if not Humanoid or not Humanoid.Parent then
-        Notify("Humanoid not found, reinitializing.")
-        Character = Players.LocalPlayer.Character or Players.LocalPlayer.CharacterAdded:Wait()
-        Humanoid = Character:WaitForChild("Humanoid")
-        Root = Character:WaitForChild("HumanoidRootPart")
-    end
-    if #positionList == 0 then
-        Notify("Unable to start walking. No positions available.")
-        return
-    end
-
-    local REACH_RADIUS = 4
-    local MAX_TRAVEL_SECS = 15 
-    local NO_PROGRESS_SECS = 2.5
-    local MIN_IMPROVE_studs = 0.75
-
-    while walkingEnabled do
-        local rp = Root.Position
-        local i, bestD = 1, math.huge
-        for j = 1, #positionList do
-            local p = positionList[j]
-            if p and p.X and p.Y and p.Z then
-                local d = (rp - Vector3.new(p.X, p.Y, p.Z)).Magnitude
-                if d < bestD then i, bestD = j, d end
-            end
-        end
-
-        for step = 1, #positionList do
-            if not walkingEnabled then break end
-            local pos = positionList[i]
-            if not (pos and pos.X and pos.Y and pos.Z) then
-                Notify("Invalid position data."); break
-            end
-
-            local targetPos = Vector3.new(pos.X, pos.Y, pos.Z)
-            Humanoid:MoveTo(targetPos)
-
-            local moveFinished, restartToNearest = false, false
-            local conn; conn = Humanoid.MoveToFinished:Connect(function() moveFinished = true; if conn then conn:Disconnect() end end)
-
-            local t0 = tick()
-            local lastCheck = t0
-            local lastDist = (Root.Position - targetPos).Magnitude
-
-            while walkingEnabled and not moveFinished do
-                task.wait(0.2)
-                local curDist = (Root.Position - targetPos).Magnitude
-                if curDist <= REACH_RADIUS then
-                    moveFinished = true
-                    break
-                end
-                if (tick() - t0) > MAX_TRAVEL_SECS or ((tick() - lastCheck) > NO_PROGRESS_SECS and (lastDist - curDist) < MIN_IMPROVE_studs) then
-                    restartToNearest = true
-                    break
-                end
-                lastCheck = tick()
-                lastDist = curDist
-            end
-
-            if conn then conn:Disconnect() end
-
-            if restartToNearest then
-                break
-            end
-
-            i = (i % #positionList) + 1
-            task.wait(0.1)
-        end
-    end
-
-end
-
-local rayParams do
-    rayParams = RaycastParams.new()
-    rayParams.FilterType = Enum.RaycastFilterType.Exclude
-    rayParams.RespectCanCollide = true
-end
+local rayParams = RaycastParams.new()
+rayParams.FilterType = Enum.RaycastFilterType.Exclude
+rayParams.RespectCanCollide = true
 
 local function PathBlocked(fromPos: Vector3, toPos: Vector3)
     rayParams.FilterDescendantsInstances = {Character}
     local dir = toPos - fromPos
     local hit = workspace:Raycast(fromPos + Vector3.new(0, 2, 0), dir, rayParams)
-    return hit and (hit.Instance:IsA("Terrain") or (hit.Instance.CanCollide ~= nil and hit.Instance.CanCollide))
+    return hit and (hit.Instance:IsA("Terrain") or hit.Instance.CanCollide)
 end
 
 local function NearestReachableIndex(fromPos: Vector3)
@@ -1405,110 +1330,65 @@ local function NearestReachableIndex(fromPos: Vector3)
     return bestI
 end
 
-local Terrain = workspace.Terrain
-local DEFAULT_FOOT_OFFSET = 2.8
-local MIN_WALK_NORMAL_Y = math.cos(math.rad(45))
-local MAX_STEP = ((Humanoid and Humanoid.StepHeight) or 2) + 1.0
-local ASCENT_ALLOWANCE = 24
+local function startWalking()
+    if not Humanoid or not Humanoid.Parent then
+        Notify("Humanoid not found, reinitializing.")
+        Character = Players.LocalPlayer.Character or Players.LocalPlayer.CharacterAdded:Wait()
+        Humanoid = Character:WaitForChild("Humanoid")
+        Root = Character:WaitForChild("HumanoidRootPart")
+    end
+    if #positionList == 0 then
+        Notify("Unable to start walking. No positions available.")
+        return
+    end
 
-local IgnoreList = {}
-local function setIgnoreList()
-    IgnoreList = {}
-    if Character then table.insert(IgnoreList, Character) end
-end
+    local REACH_RADIUS, MAX_TRAVEL_SECS = 4, 15
+    local NO_PROGRESS_SECS, MIN_IMPROVE_STUDS = 2.5, 0.75
 
-local function RaycastDown(fromPos: Vector3, maxCast: number?, extraIgnore: {Instance}? )
-    local castHeight = maxCast or 512
-    local origin = fromPos + Vector3.new(0, castHeight, 0)
-    local direction = Vector3.new(0, -castHeight*2, 0)
+    while walkingEnabled do
+        local i = NearestReachableIndex(Root.Position)
+        if not i then
+            Notify("No reachable positions (blocked by terrain).")
+            break
+        end
 
-    local rp = RaycastParams.new()
-    rp.FilterType = Enum.RaycastFilterType.Exclude
-    setIgnoreList()
-    if extraIgnore then
-        for _, inst in ipairs(extraIgnore) do
-            table.insert(IgnoreList, inst)
+        for _ = 1, #positionList do
+            if not walkingEnabled then break end
+            local pos = positionList[i]
+            if not (pos and pos.X) then break end
+
+            local targetPos = Vector3.new(pos.X, pos.Y, pos.Z)
+            if PathBlocked(Root.Position, targetPos) then
+                i = NearestReachableIndex(Root.Position) or ((i % #positionList) + 1)
+                continue
+            end
+
+            Humanoid:MoveTo(targetPos)
+            local moveFinished, restartNearest = false, false
+            local conn; conn = Humanoid.MoveToFinished:Connect(function() moveFinished = true; if conn then conn:Disconnect() end end)
+
+            local t0, lastCheck = tick(), tick()
+            local lastDist = (Root.Position - targetPos).Magnitude
+
+            while walkingEnabled and not moveFinished do
+                task.wait(0.2)
+                local curDist = (Root.Position - targetPos).Magnitude
+                if curDist <= REACH_RADIUS then moveFinished = true break end
+                if (tick() - t0) > MAX_TRAVEL_SECS
+                    or ((tick() - lastCheck) > NO_PROGRESS_SECS and (lastDist - curDist) < MIN_IMPROVE_STUDS) then
+                    restartNearest = true break
+                end
+                lastCheck, lastDist = tick(), curDist
+            end
+
+            if conn then conn:Disconnect() end
+            if restartNearest then break end
+
+            i = (i % #positionList) + 1
+            task.wait(0.1)
         end
     end
-    rp.FilterDescendantsInstances = IgnoreList
-    rp.IgnoreWater = false
-
-    return workspace:Raycast(origin, direction, rp)
 end
-
-local function GetGroundBelow(pos: Vector3, maxCast: number?, extraIgnore: {Instance}? )
-    local hit = RaycastDown(pos, maxCast, extraIgnore)
-    if hit then
-        return hit.Position.Y, hit.Position, hit.Material, hit.Normal
-    end
-    return nil, nil, nil, nil
-end
-
-local function SnapYToGround(v: Vector3, yOffset: number?)
-    local gy = GetGroundBelow(v)
-    if gy then
-        return Vector3.new(v.X, gy + (yOffset or DEFAULT_FOOT_OFFSET), v.Z)
-    end
-    return v
-end
-
-local function SnapRootToGround()
-    if not Root then return end
-    local pos = Root.Position
-    local gy = GetGroundBelow(pos)
-    if gy then
-        local newPos = Vector3.new(pos.X, gy + DEFAULT_FOOT_OFFSET, pos.Z)
-        local lookAt = pos + Root.CFrame.LookVector
-        Root.CFrame = CFrame.new(newPos, Vector3.new(lookAt.X, newPos.Y, lookAt.Z))
-    end
-end
-
-local function FindWalkableAt(posNear: Vector3, preferY: number?)
-    if preferY then
-        local probe = Vector3.new(posNear.X, math.min(preferY, posNear.Y + ASCENT_ALLOWANCE), posNear.Z)
-        local hit = RaycastDown(probe, 256)
-        if hit and hit.Normal and hit.Normal.Y >= MIN_WALK_NORMAL_Y then
-            return hit.Position.Y, hit
-        end
-    end
-    local hit = RaycastDown(posNear, 512)
-    if hit and hit.Normal and hit.Normal.Y >= MIN_WALK_NORMAL_Y then
-        return hit.Position.Y, hit
-    end
-    return nil, nil
-end
-
-local function SegmentAscentAllowed(a: Vector3, b: Vector3, preferY: number?)
-    local samples = 6
-    local lastY
-    for s = 0, samples do
-        local t = s / samples
-        local p = a:Lerp(b, t)
-        local prefer = preferY and (a.Y + (preferY - a.Y) * t) or nil
-        local y, hit = FindWalkableAt(p, prefer)
-        if not y then return false end
-        if hit and hit.Normal and hit.Normal.Y < MIN_WALK_NORMAL_Y then return false end
-        if lastY and (y - lastY) > MAX_STEP then return false end
-        lastY = y
-    end
-    return true
-end
-
-local function ChooseTargetY(currentPos: Vector3, rawTarget: Vector3)
-    local yBelow = ({FindWalkableAt(rawTarget)})[1]
-    if not yBelow then yBelow = rawTarget.Y end
-
-    local wantsUp = rawTarget.Y > yBelow
-    if wantsUp then
-        if SegmentAscentAllowed(currentPos, rawTarget, rawTarget.Y) then
-            local yHigh = ({FindWalkableAt(rawTarget, rawTarget.Y)})[1]
-            if yHigh then return yHigh end
-        end
-    end
-    local yLow = ({FindWalkableAt(rawTarget)})[1]
-    return yLow or yBelow
-end
-
 
 local function startTweening()
     if not Humanoid or not Humanoid.Parent then
@@ -1539,16 +1419,13 @@ local function startTweening()
             local pos = positionList[i]
             if not (pos and pos.X) then break end
 
-            local rawTarget = Vector3.new(pos.X, pos.Y, pos.Z)
-            local chosenY = ChooseTargetY(Root.Position, rawTarget)
-            local targetPos = Vector3.new(rawTarget.X, chosenY + DEFAULT_FOOT_OFFSET, rawTarget.Z)
-
-            if PathBlocked(Root.Position, targetPos) or not SegmentAscentAllowed(Root.Position, targetPos, rawTarget.Y) then
+            local targetPos = Vector3.new(pos.X, pos.Y, pos.Z)
+            if PathBlocked(Root.Position, targetPos) then
                 i = NearestReachableIndex(Root.Position) or ((i % #positionList) + 1)
                 continue
             end
 
-            local duration = math.max(0.05, (Root.Position - targetPos).Magnitude / (walkSpeed or Humanoid.WalkSpeed))
+            local duration = math.max(0.05, (Root.Position - targetPos).Magnitude / walkSpeed)
             local ti = TweenInfo.new(duration, Enum.EasingStyle.Linear)
 
             if tweenConn then tweenConn:Disconnect(); tweenConn = nil end
@@ -1571,18 +1448,14 @@ local function startTweening()
             while tweeningEnabled and not completed do
                 task.wait(0.2)
 
-                SnapRootToGround()
-
                 local curPos = Root.Position
                 local curDist = (curPos - targetPos).Magnitude
 
                 if curDist <= REACH_RADIUS then completed = true break end
-
                 local stepJump = (curPos - lastPos).Magnitude
                 if (curDist - lastDist) >= TELEPORT_BACK_DINC or stepJump >= TELEPORT_STEP_JUMP then
                     restartNearest = true break
                 end
-
                 if (tick() - t0) > MAX_TRAVEL_SECS
                     or ((tick() - lastPoll) > NO_PROGRESS_SECS and (lastDist - curDist) < MIN_IMPROVE_STUDS) then
                     restartNearest = true break
@@ -1596,7 +1469,6 @@ local function startTweening()
 
             if restartNearest then
                 Root.Anchored = false
-                SnapRootToGround()
                 task.wait(0.15)
                 break
             end
@@ -1605,7 +1477,7 @@ local function startTweening()
             task.wait(0.1)
         end
 
-        if campEnabled and chest and chest:FindFirstChild("Contents") and chest.Contents:FindFirstChild("Gold") then
+        if campEnabled and chest and chest.Contents:FindFirstChild("Gold") then
             for _, v in next, GetDeployable("Campfire", 25, true) do
                 if v.deployable.Board.Billboard.Backdrop.TextLabel.Text <= "10" then
                     local itemID = GetFuel()
@@ -1616,7 +1488,7 @@ local function startTweening()
             end
         end
 
-        if pickUpGoldEnabled and chest and chest:FindFirstChild("Contents") then
+        if pickUpGoldEnabled and chest then
             for _, v in next, chest.Contents:GetChildren() do
                 if v.Name == "Gold" then
                     Packets.Pickup.send(v:GetAttribute("EntityID"))
@@ -1624,16 +1496,13 @@ local function startTweening()
             end
         end
 
-        if pressEnabled and chest and chest:FindFirstChild("Contents") then
+        if pressEnabled and chest then
             local deployable = GetDeployable("Coin Press", 25)
             if deployable then
                 for _, v in next, chest.Contents:GetChildren() do
                     if v.Name == "Gold" then
                         Packets.Pickup.send(v:GetAttribute("EntityID"))
-                        Packets.InteractStructure.send({
-                            entityID = deployable:GetAttribute("EntityID"),
-                            itemID = ItemIDS[v.Name]
-                        })
+                        Packets.InteractStructure.send({ entityID = deployable:GetAttribute("EntityID"), itemID = ItemIDS[v.Name] })
                         task.wait(0.2)
                     end
                 end
@@ -1644,6 +1513,7 @@ local function startTweening()
     if tweenConn then tweenConn:Disconnect(); tweenConn = nil end
     if tween then tween:Cancel(); tween = nil end
 end
+
 
 local function autoJump()
     while autoJumpEnabled do
