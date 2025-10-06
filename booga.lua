@@ -1389,129 +1389,9 @@ local function startWalking()
         end
     end
 end
--- put these near your other locals
-local _tweenIdx = 1
-local DEBUG_TWEEN = false
-local function dbg(...) if DEBUG_TWEEN then print("[PATH]", ...) end end
 
--- ray params for ground snap (exclude your character)
-local groundParams = RaycastParams.new()
-groundParams.FilterType = Enum.RaycastFilterType.Exclude
-groundParams.RespectCanCollide = true
+local _tweenIdx = nil
 
-local function GroundSnap(pos: Vector3): Vector3
-    local char = Character or Players.LocalPlayer.Character
-    local hum  = char and char:FindFirstChildOfClass("Humanoid")
-    local hip  = (hum and hum.HipHeight) or 2
-    groundParams.FilterDescendantsInstances = {char}
-
-    -- cast from above downwards to find terrain/floor
-    local origin = pos + Vector3.new(0, 200, 0)
-    local dir    = Vector3.new(0, -1000, 0)
-    local hit    = workspace:Raycast(origin, dir, groundParams)
-
-    if hit then
-        -- keep a small cushion above the ground
-        return Vector3.new(pos.X, hit.Position.Y + hip + (Root.Size.Y * 0.5), pos.Z)
-    else
-        -- if no ground, fallback to original Y (rare, e.g., over void)
-        return pos
-    end
-end
-
--- file point → Vector3
-local function asVec3(p)
-    if typeof(p) == "Vector3" then return p end
-    return Vector3.new(p.X, p.Y, p.Z)
-end
-
--- move using Pathfinding + MoveTo, with ground snap and rubberband watchdogs
-local function moveToSafely(dest: Vector3): boolean
-    if not Character or not Root or not Humanoid then return false end
-
-    -- compute path with current humanoid caps (good for slopes/jumps)
-    local hum = Humanoid
-    local path = PathfindingService:CreatePath({
-        AgentRadius    = 2,
-        AgentHeight    = 5,
-        AgentCanJump   = true,
-        AgentJumpHeight= hum.JumpHeight,
-        AgentMaxSlope  = hum.MaxSlopeAngle,
-        WaypointSpacing= 4,
-        Costs          = {} -- default costs
-    })
-
-    path:ComputeAsync(Root.Position, dest)
-    if path.Status ~= Enum.PathStatus.Success then
-        dbg("path fail, status:", path.Status)
-        return false
-    end
-
-    local waypoints = path:GetWaypoints()
-    if #waypoints == 0 then return false end
-
-    local HARD_TIMEOUT     = 25
-    local NO_PROGRESS_SECS = 2.5
-    local MIN_IMPROVE      = 0.75
-    local TELEPORT_JUMP    = 15   -- sudden big step = rubberband
-    local START            = tick()
-    local lastCheck        = tick()
-    local lastPos          = Root.Position
-    local lastDist         = (lastPos - dest).Magnitude
-
-    Root.Anchored = false
-    for i, wp in ipairs(waypoints) do
-        local target = GroundSnap(wp.Position)
-
-        if wp.Action == Enum.PathWaypointAction.Jump then
-            hum.Jump = true
-        end
-
-        hum:MoveTo(target)
-        local reached = false
-        local conn
-        conn = hum.MoveToFinished:Connect(function(ok)
-            reached = ok
-            if conn then conn:Disconnect() conn = nil end
-        end)
-
-        -- per-waypoint watchdog loop
-        while not reached do
-            task.wait(0.1)
-            -- hard stop overall
-            if (tick() - START) > HARD_TIMEOUT then
-                if conn then conn:Disconnect() end
-                dbg("hard timeout")
-                return false
-            end
-
-            -- progress/rubberband checks
-            local curPos  = Root.Position
-            local curDist = (curPos - dest).Magnitude
-
-            -- if rubberbanded far away (big sudden step), bail to caller
-            local stepJump = (curPos - lastPos).Magnitude
-            if stepJump >= TELEPORT_JUMP then
-                if conn then conn:Disconnect() end
-                dbg("rubberband detected, stepJump:", stepJump)
-                return false
-            end
-
-            -- no progress toward overall dest
-            if (tick() - lastCheck) > NO_PROGRESS_SECS and (lastDist - curDist) < MIN_IMPROVE then
-                if conn then conn:Disconnect() end
-                dbg("no progress toward dest")
-                return false
-            end
-
-            lastCheck, lastPos, lastDist = tick(), curPos, curDist
-        end
-    end
-
-    return true
-end
-
--- STRICT file-order loop with ground-snap + pathfinding (no CFrame tween)
 local function startTweening()
     if not Humanoid or not Humanoid.Parent then
         Notify("Humanoid not found, reinitializing.")
@@ -1524,37 +1404,130 @@ local function startTweening()
         return
     end
 
-    -- always start from 1 on fresh run to avoid “middle blob anchor”
-    _tweenIdx = 1
-    -- kill any old tweens (we won’t use TweenService here)
-    if tweenConn then tweenConn:Disconnect(); tweenConn = nil end
-    if tween then tween:Cancel(); tween = nil end
+    if not _tweenIdx then
+        _tweenIdx = NearestReachableIndex(Root.Position) or 1
+    end
+
+    local REACH_RADIUS, MAX_TRAVEL_SECS = 4, 30
+    local NO_PROGRESS_SECS, MIN_IMPROVE_STUDS = 2.5, 0.75
+    local TELEPORT_BACK_DINC, TELEPORT_STEP_JUMP = 8, 15
 
     while tweeningEnabled do
-        local N = #positionList
-        if N == 0 then break end
-        if _tweenIdx > N then _tweenIdx = 1 end
-
-        local p = positionList[_tweenIdx]
-        if not p then
-            _tweenIdx = (_tweenIdx % N) + 1
-            task.wait()
-            continue
+        if _tweenIdx < 1 or _tweenIdx > #positionList then
+            _tweenIdx = 1
         end
 
-        local rawTarget = asVec3(p)
-        local target    = GroundSnap(rawTarget) -- snap the final blob to terrain
-        dbg(("→ #%d / %d  dest (%.1f,%.1f,%.1f)"):format(_tweenIdx, N, target.X, target.Y, target.Z))
+        for _ = 1, #positionList do
+            if not tweeningEnabled then break end
 
-        local ok = moveToSafely(target)
+            local pos = positionList[_tweenIdx]
+            if not pos or not pos.X then
+                _tweenIdx = (_tweenIdx % #positionList) + 1
+                continue
+            end
 
-        -- Always advance in file order so it wraps N→1 deterministically
-        _tweenIdx = (_tweenIdx % N) + 1
+            local targetPos = Vector3.new(pos.X, pos.Y, pos.Z)
 
-        -- small breather; also a good place for your chest/press logic if wanted
-        task.wait(0.05)
+            if PathBlocked(Root.Position, targetPos) then
+                local tryNearest = NearestReachableIndex(Root.Position)
+                if tryNearest then
+                    _tweenIdx = tryNearest
+                else
+                    _tweenIdx = (_tweenIdx % #positionList) + 1
+                end
+                continue
+            end
+
+            local duration = math.max(0.05, (Root.Position - targetPos).Magnitude / walkSpeed)
+            local ti = TweenInfo.new(duration, Enum.EasingStyle.Linear)
+
+            if tweenConn then tweenConn:Disconnect(); tweenConn = nil end
+            if tween then tween:Cancel() end
+
+            tweenInfo = { MaxSpeed = Humanoid.WalkSpeed, CFrame = CFrame.new(targetPos) }
+            tween = TweenService:Create(Root, ti, { CFrame = CFrame.new(targetPos) })
+
+            local completed, restartNearest = false, false
+            tweenConn = tween.Completed:Connect(function()
+                completed = true
+                if tweenConn then tweenConn:Disconnect(); tweenConn = nil end
+            end)
+            tween:Play()
+
+            local t0, lastPoll = tick(), tick()
+            local lastDist = (Root.Position - targetPos).Magnitude
+            local lastPos = Root.Position
+
+            while tweeningEnabled and not completed do
+                task.wait(0.2)
+                local curPos = Root.Position
+                local curDist = (curPos - targetPos).Magnitude
+
+                if curDist <= REACH_RADIUS then completed = true break end
+
+                local stepJump = (curPos - lastPos).Magnitude
+                if (curDist - lastDist) >= TELEPORT_BACK_DINC or stepJump >= TELEPORT_STEP_JUMP then
+                    restartNearest = true
+                    break
+                end
+
+                if (tick() - t0) > MAX_TRAVEL_SECS
+                    or ((tick() - lastPoll) > NO_PROGRESS_SECS and (lastDist - curDist) < MIN_IMPROVE_STUDS) then
+                    restartNearest = true
+                    break
+                end
+
+                lastPoll, lastDist, lastPos = tick(), curDist, curPos
+            end
+
+            if tweenConn then tweenConn:Disconnect(); tweenConn = nil end
+            if tween then tween:Cancel(); tween = nil end
+
+            if restartNearest then
+                _tweenIdx = NearestReachableIndex(Root.Position) or ((_tweenIdx % #positionList) + 1)
+                break
+            else
+                _tweenIdx = (_tweenIdx % #positionList) + 1
+            end
+
+            task.wait(0.05)
+        end
+
+        if campEnabled and chest and chest.Contents:FindFirstChild("Gold") then
+            for _, v in next, GetDeployable("Campfire", 25, true) do
+                if v.deployable.Board.Billboard.Backdrop.TextLabel.Text <= "10" then
+                    local itemID = GetFuel()
+                    if itemID then
+                        Packets.InteractStructure.send({ entityID = v.deployable:GetAttribute("EntityID"), itemID = itemID })
+                    end
+                end
+            end
+        end
+        if pickUpGoldEnabled and chest then
+            for _, v in next, chest.Contents:GetChildren() do
+                if v.Name == "Gold" then
+                    Packets.Pickup.send(v:GetAttribute("EntityID"))
+                end
+            end
+        end
+        if pressEnabled and chest then
+            local deployable = GetDeployable("Coin Press", 25)
+            if deployable then
+                for _, v in next, chest.Contents:GetChildren() do
+                    if v.Name == "Gold" then
+                        Packets.Pickup.send(v:GetAttribute("EntityID"))
+                        Packets.InteractStructure.send({ entityID = deployable:GetAttribute("EntityID"), itemID = ItemIDS[v.Name] })
+                        task.wait(0.2)
+                    end
+                end
+            end
+        end
     end
+
+    if tweenConn then tweenConn:Disconnect(); tweenConn = nil end
+    if tween then tween:Cancel(); tween = nil end
 end
+
 
 
 local function autoJump()
