@@ -1389,7 +1389,20 @@ local function startWalking()
         end
     end
 end
+
 local _tweenIdx = nil
+local _badUntil = {}
+
+local function _asVec3(p)
+    if typeof(p) == "Vector3" then return p end
+    return Vector3.new(p.X, p.Y, p.Z)
+end
+
+local function _nextIdx(i, n)
+    i = i + 1
+    if i > n then i = 1 end
+    return i
+end
 
 local function startTweening()
     if not Humanoid or not Humanoid.Parent then
@@ -1403,94 +1416,97 @@ local function startTweening()
         return
     end
 
-    if not _tweenIdx then
-        _tweenIdx = NearestReachableIndex(Root.Position) or 1
+    local N = #positionList
+    if not _tweenIdx or _tweenIdx < 1 or _tweenIdx > N then
+        _tweenIdx = 1
     end
 
-    local REACH_RADIUS, MAX_TRAVEL_SECS = 4, 30
-    local NO_PROGRESS_SECS, MIN_IMPROVE_STUDS = 2.5, 0.75
-    local TELEPORT_BACK_DINC, TELEPORT_STEP_JUMP = 8, 15
+    local REACH_RADIUS        = 4
+    local MAX_TRAVEL_SECS     = 25
+    local NO_PROGRESS_SECS    = 2.5
+    local MIN_IMPROVE_STUDS   = 0.75
+    local TELEPORT_BACK_DINC  = 8
+    local TELEPORT_STEP_JUMP  = 15
+    local BAD_POINT_COOLDOWN  = 8
 
     while tweeningEnabled do
-        if _tweenIdx < 1 or _tweenIdx > #positionList then
-            _tweenIdx = 1
+        if N == 0 then break end
+        if _tweenIdx > N then _tweenIdx = 1 end
+
+        local now = os.clock()
+        if _badUntil[_tweenIdx] and _badUntil[_tweenIdx] > now then
+            _tweenIdx = _nextIdx(_tweenIdx, N)
+            task.wait() -- yield a tick
+            continue
         end
 
-        for _ = 1, #positionList do
-            if not tweeningEnabled then break end
+        local pos = positionList[_tweenIdx]
+        if not pos then
+            _tweenIdx = _nextIdx(_tweenIdx, N)
+            continue
+        end
+        local targetPos = _asVec3(pos)
 
-            local pos = positionList[_tweenIdx]
-            if not pos or not pos.X then
-                _tweenIdx = (_tweenIdx % #positionList) + 1
-                continue
-            end
+        if PathBlocked(Root.Position, targetPos) then
+            _badUntil[_tweenIdx] = now + BAD_POINT_COOLDOWN
+            _tweenIdx = _nextIdx(_tweenIdx, N)
+            continue
+        end
 
-            local targetPos = Vector3.new(pos.X, pos.Y, pos.Z)
+        local duration = math.max(0.05, (Root.Position - targetPos).Magnitude / math.max(1, walkSpeed))
+        local ti = TweenInfo.new(duration, Enum.EasingStyle.Linear)
 
-            if PathBlocked(Root.Position, targetPos) then
-                local tryNearest = NearestReachableIndex(Root.Position)
-                if tryNearest then
-                    _tweenIdx = tryNearest
-                else
-                    _tweenIdx = (_tweenIdx % #positionList) + 1
-                end
-                continue
-            end
+        if tweenConn then tweenConn:Disconnect(); tweenConn = nil end
+        if tween then tween:Cancel() end
 
-            local duration = math.max(0.05, (Root.Position - targetPos).Magnitude / walkSpeed)
-            local ti = TweenInfo.new(duration, Enum.EasingStyle.Linear)
+        tween = TweenService:Create(Root, ti, { CFrame = CFrame.new(targetPos) })
+        local finished, giveUp = false, false
 
+        tweenConn = tween.Completed:Connect(function()
+            finished = true
             if tweenConn then tweenConn:Disconnect(); tweenConn = nil end
-            if tween then tween:Cancel() end
+        end)
+        tween:Play()
 
-            tweenInfo = { MaxSpeed = Humanoid.WalkSpeed, CFrame = CFrame.new(targetPos) }
-            tween = TweenService:Create(Root, ti, { CFrame = CFrame.new(targetPos) })
+        local t0, lastCheck = tick(), tick()
+        local lastDist = (Root.Position - targetPos).Magnitude
+        local lastPos  = Root.Position
 
-            local completed, restartNearest = false, false
-            tweenConn = tween.Completed:Connect(function()
-                completed = true
-                if tweenConn then tweenConn:Disconnect(); tweenConn = nil end
-            end)
-            tween:Play()
+        while tweeningEnabled and not finished do
+            task.wait(0.2)
 
-            local t0, lastPoll = tick(), tick()
-            local lastDist = (Root.Position - targetPos).Magnitude
-            local lastPos = Root.Position
-
-            while tweeningEnabled and not completed do
-                task.wait(0.2)
-                local curPos = Root.Position
-                local curDist = (curPos - targetPos).Magnitude
-
-                if curDist <= REACH_RADIUS then completed = true break end
-
-                local stepJump = (curPos - lastPos).Magnitude
-                if (curDist - lastDist) >= TELEPORT_BACK_DINC or stepJump >= TELEPORT_STEP_JUMP then
-                    restartNearest = true
-                    break
-                end
-
-                if (tick() - t0) > MAX_TRAVEL_SECS
-                    or ((tick() - lastPoll) > NO_PROGRESS_SECS and (lastDist - curDist) < MIN_IMPROVE_STUDS) then
-                    restartNearest = true
-                    break
-                end
-
-                lastPoll, lastDist, lastPos = tick(), curDist, curPos
-            end
-
-            if tweenConn then tweenConn:Disconnect(); tweenConn = nil end
-            if tween then tween:Cancel(); tween = nil end
-
-            if restartNearest then
-                _tweenIdx = NearestReachableIndex(Root.Position) or ((_tweenIdx % #positionList) + 1)
+            local curPos  = Root.Position
+            local curDist = (curPos - targetPos).Magnitude
+            if curDist <= REACH_RADIUS then
+                finished = true
                 break
-            else
-                _tweenIdx = (_tweenIdx % #positionList) + 1
             end
 
-            task.wait(0.05)
+            local stepJump = (curPos - lastPos).Magnitude
+            if (curDist - lastDist) >= TELEPORT_BACK_DINC or stepJump >= TELEPORT_STEP_JUMP then
+                giveUp = true
+                break
+            end
+            if (tick() - t0) > MAX_TRAVEL_SECS
+                or ((tick() - lastCheck) > NO_PROGRESS_SECS and (lastDist - curDist) < MIN_IMPROVE_STUDS) then
+                giveUp = true
+                break
+            end
+
+            lastCheck, lastDist, lastPos = tick(), curDist, curPos
         end
+
+        if tweenConn then tweenConn:Disconnect(); tweenConn = nil end
+        if tween then tween:Cancel(); tween = nil end
+
+        if giveUp then
+            _badUntil[_tweenIdx] = os.clock() + BAD_POINT_COOLDOWN
+            _tweenIdx = _nextIdx(_tweenIdx, N)
+        else
+            _tweenIdx = _nextIdx(_tweenIdx, N)
+        end
+
+        task.wait(0.05)
 
         if campEnabled and chest and chest.Contents:FindFirstChild("Gold") then
             for _, v in next, GetDeployable("Campfire", 25, true) do
