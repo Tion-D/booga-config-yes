@@ -1,17 +1,14 @@
 setthreadidentity(5)
 local RS = game:GetService("ReplicatedStorage")
-local clientAnimalReadyRemote = RS:WaitForChild("ClientAnimalReady")
-
-local oldFireServer = nil
-oldFireServer = hookmetamethod(clientAnimalReadyRemote, "__namecall", newcclosure(function(self, ...)
-    local method = getnamecallmethod()
-
-    if self == clientAnimalReadyRemote and method == "FireServer" then
+local ClientAnimalReady = RS:WaitForChild("ClientAnimalReady")
+local old; old = hookfunction(ClientAnimalReady.FireServer, function(...)
+    local remote = select(1, ...) 
+    if not checkcaller() and remote == ClientAnimalReady then
         warn("Blocked")
-        return
+        return nil
     end
-    return oldFireServer(self, ...)
-end))
+    return old(...)
+end)
 
 local PathfindingService = game:GetService("PathfindingService")
 local TweenService = game:GetService("TweenService")
@@ -642,23 +639,23 @@ local function pressCoins()
     while CoinpressEnabled do
         local deployable = GetDeployable("Coin Press", 25)
         local entityID = deployable and deployable:GetAttribute("EntityID")
-        if not entityID then task.wait() continue end
+        if not entityID then task.wait(0.3) continue end
 
         local goldAmt = tonumber((GetQuantity("Gold") or 0)) or 0
-        if goldAmt == 0 then task.wait() continue end
+        if goldAmt == 0 then task.wait(0.3) continue end
 
         local before = goldAmt
         Packets.InteractStructure.send({ entityID = entityID, itemID = ItemIDS.Gold })
-        task.wait()
+        task.wait(0.05)
 
         local t0 = os.clock()
         repeat
-            task.wait()
+            task.wait(0.1)
             goldAmt = tonumber((GetQuantity("Gold") or 0)) or 0
         until goldAmt < before or (os.clock() - t0) > 1.2
 
         if goldAmt >= before then
-            task.wait()
+            task.wait(0.5)
         end
     end
 end
@@ -1268,68 +1265,6 @@ local function interactWithNearbyResources(radius)
     end
 end
 
-local RAY_PARAMS = RaycastParams.new()
-RAY_PARAMS.FilterType = Enum.RaycastFilterType.Exclude
-RAY_PARAMS.IgnoreWater = true
-
-local function isBlockingHit(hit: RaycastResult?): boolean
-    if not hit then return false end
-    local inst = hit.Instance
-    if inst and inst:IsA("Terrain") then return true end
-    if hit.Material ~= Enum.Material.Air and (not inst:IsA("BasePart") or inst.CanCollide ~= false) then
-        return true
-    end
-    return false
-end
-
-local function clearPath(p0: Vector3, p1: Vector3, ignoreList: {Instance}?): boolean
-    local dir = p1 - p0
-    if dir.Magnitude < 1 then return true end
-
-    RAY_PARAMS.FilterDescendantsInstances = ignoreList or {}
-    local offsets = {
-        Vector3.new(0, 2, 0),
-        Vector3.new(0, 4, 0),
-        Vector3.new(0, 0, 0),
-    }
-
-    for _, off in ipairs(offsets) do
-        local a = p0 + off
-        local b = p1 + off
-        local hit = Workspace:Raycast(a, b - a, RAY_PARAMS)
-        if isBlockingHit(hit) then
-            return false
-        end
-    end
-    return true
-end
-
-local rayParams = RaycastParams.new()
-rayParams.FilterType = Enum.RaycastFilterType.Exclude
-rayParams.RespectCanCollide = true
-
-local function PathBlocked(fromPos: Vector3, toPos: Vector3)
-    rayParams.FilterDescendantsInstances = {Character}
-    local dir = toPos - fromPos
-    local hit = workspace:Raycast(fromPos + Vector3.new(0, 2, 0), dir, rayParams)
-    return hit and (hit.Instance:IsA("Terrain") or hit.Instance.CanCollide)
-end
-
-local function NearestReachableIndex(fromPos: Vector3)
-    local bestI, bestD = nil, math.huge
-    for j = 1, #positionList do
-        local p = positionList[j]
-        if p and p.X then
-            local tp = Vector3.new(p.X, p.Y, p.Z)
-            local d = (fromPos - tp).Magnitude
-            if d < bestD and not PathBlocked(fromPos, tp) then
-                bestI, bestD = j, d
-            end
-        end
-    end
-    return bestI
-end
-
 local function startWalking()
     if not Humanoid or not Humanoid.Parent then
         Notify("Humanoid not found, reinitializing.")
@@ -1342,55 +1277,66 @@ local function startWalking()
         return
     end
 
-    local REACH_RADIUS, MAX_TRAVEL_SECS = 4, 15
-    local NO_PROGRESS_SECS, MIN_IMPROVE_STUDS = 2.5, 0.75
+    local REACH_RADIUS = 4
+    local MAX_TRAVEL_SECS = 15 
+    local NO_PROGRESS_SECS = 2.5
+    local MIN_IMPROVE_studs = 0.75
 
     while walkingEnabled do
-        local i = NearestReachableIndex(Root.Position)
-        if not i then
-            Notify("No reachable positions (blocked by terrain).")
-            break
+        local rp = Root.Position
+        local i, bestD = 1, math.huge
+        for j = 1, #positionList do
+            local p = positionList[j]
+            if p and p.X and p.Y and p.Z then
+                local d = (rp - Vector3.new(p.X, p.Y, p.Z)).Magnitude
+                if d < bestD then i, bestD = j, d end
+            end
         end
 
-        for _ = 1, #positionList do
+        for step = 1, #positionList do
             if not walkingEnabled then break end
             local pos = positionList[i]
-            if not (pos and pos.X) then break end
-
-            local targetPos = Vector3.new(pos.X, pos.Y, pos.Z)
-            if PathBlocked(Root.Position, targetPos) then
-                i = NearestReachableIndex(Root.Position) or ((i % #positionList) + 1)
-                continue
+            if not (pos and pos.X and pos.Y and pos.Z) then
+                Notify("Invalid position data."); break
             end
 
+            local targetPos = Vector3.new(pos.X, pos.Y, pos.Z)
             Humanoid:MoveTo(targetPos)
-            local moveFinished, restartNearest = false, false
+
+            local moveFinished, restartToNearest = false, false
             local conn; conn = Humanoid.MoveToFinished:Connect(function() moveFinished = true; if conn then conn:Disconnect() end end)
 
-            local t0, lastCheck = tick(), tick()
+            local t0 = tick()
+            local lastCheck = t0
             local lastDist = (Root.Position - targetPos).Magnitude
 
             while walkingEnabled and not moveFinished do
                 task.wait(0.2)
                 local curDist = (Root.Position - targetPos).Magnitude
-                if curDist <= REACH_RADIUS then moveFinished = true break end
-                if (tick() - t0) > MAX_TRAVEL_SECS
-                    or ((tick() - lastCheck) > NO_PROGRESS_SECS and (lastDist - curDist) < MIN_IMPROVE_STUDS) then
-                    restartNearest = true break
+                if curDist <= REACH_RADIUS then
+                    moveFinished = true
+                    break
                 end
-                lastCheck, lastDist = tick(), curDist
+                if (tick() - t0) > MAX_TRAVEL_SECS or ((tick() - lastCheck) > NO_PROGRESS_SECS and (lastDist - curDist) < MIN_IMPROVE_studs) then
+                    restartToNearest = true
+                    break
+                end
+                lastCheck = tick()
+                lastDist = curDist
             end
 
             if conn then conn:Disconnect() end
-            if restartNearest then break end
+
+            if restartToNearest then
+                break
+            end
 
             i = (i % #positionList) + 1
             task.wait(0.1)
         end
     end
-end
 
-local _tweenIdx = nil
+end
 
 local function startTweening()
     if not Humanoid or not Humanoid.Parent then
@@ -1404,40 +1350,33 @@ local function startTweening()
         return
     end
 
-    if not _tweenIdx then
-        _tweenIdx = NearestReachableIndex(Root.Position) or 1
-    end
-
-    local REACH_RADIUS, MAX_TRAVEL_SECS = 4, 30
-    local NO_PROGRESS_SECS, MIN_IMPROVE_STUDS = 2.5, 0.75
-    local TELEPORT_BACK_DINC, TELEPORT_STEP_JUMP = 8, 15
+    local REACH_RADIUS = 4
+    local MAX_TRAVEL_SECS = 15
+    local NO_PROGRESS_SECS = 2.5
+    local MIN_IMPROVE_STUDS = 0.75
+    local TELEPORT_BACK_DINC = 8
+    local TELEPORT_STEP_JUMP = 15
 
     while tweeningEnabled do
-        if _tweenIdx < 1 or _tweenIdx > #positionList then
-            _tweenIdx = 1
+        local rp = Root.Position
+        local i, bestD = 1, math.huge
+        for j = 1, #positionList do
+            local p = positionList[j]
+            if p and p.X and p.Y and p.Z then
+                local d = (rp - Vector3.new(p.X, p.Y, p.Z)).Magnitude
+                if d < bestD then i, bestD = j, d end
+            end
         end
 
         for _ = 1, #positionList do
             if not tweeningEnabled then break end
-
-            local pos = positionList[_tweenIdx]
-            if not pos or not pos.X then
-                _tweenIdx = (_tweenIdx % #positionList) + 1
-                continue
+            local pos = positionList[i]
+            if not (pos and pos.X and pos.Y and pos.Z) then
+                Notify("Invalid position data.")
+                break
             end
 
             local targetPos = Vector3.new(pos.X, pos.Y, pos.Z)
-
-            if PathBlocked(Root.Position, targetPos) then
-                local tryNearest = NearestReachableIndex(Root.Position)
-                if tryNearest then
-                    _tweenIdx = tryNearest
-                else
-                    _tweenIdx = (_tweenIdx % #positionList) + 1
-                end
-                continue
-            end
-
             local duration = math.max(0.05, (Root.Position - targetPos).Magnitude / walkSpeed)
             local ti = TweenInfo.new(duration, Enum.EasingStyle.Linear)
 
@@ -1452,18 +1391,24 @@ local function startTweening()
                 completed = true
                 if tweenConn then tweenConn:Disconnect(); tweenConn = nil end
             end)
+
             tween:Play()
 
-            local t0, lastPoll = tick(), tick()
+            local t0 = tick()
+            local lastPoll = t0
             local lastDist = (Root.Position - targetPos).Magnitude
             local lastPos = Root.Position
 
             while tweeningEnabled and not completed do
                 task.wait(0.2)
-                local curPos = Root.Position
+
+                local curPos  = Root.Position
                 local curDist = (curPos - targetPos).Magnitude
 
-                if curDist <= REACH_RADIUS then completed = true break end
+                if curDist <= REACH_RADIUS then
+                    completed = true
+                    break
+                end
 
                 local stepJump = (curPos - lastPos).Magnitude
                 if (curDist - lastDist) >= TELEPORT_BACK_DINC or stepJump >= TELEPORT_STEP_JUMP then
@@ -1477,20 +1422,22 @@ local function startTweening()
                     break
                 end
 
-                lastPoll, lastDist, lastPos = tick(), curDist, curPos
+                lastPoll = tick()
+                lastDist = curDist
+                lastPos = curPos
             end
 
             if tweenConn then tweenConn:Disconnect(); tweenConn = nil end
             if tween then tween:Cancel(); tween = nil end
 
             if restartNearest then
-                _tweenIdx = NearestReachableIndex(Root.Position) or ((_tweenIdx % #positionList) + 1)
+                Root.Anchored = false
+                task.wait(0.15)
                 break
-            else
-                _tweenIdx = (_tweenIdx % #positionList) + 1
             end
 
-            task.wait(0.05)
+            i = (i % #positionList) + 1
+            task.wait(0.1)
         end
 
         if campEnabled and chest and chest.Contents:FindFirstChild("Gold") then
@@ -1503,6 +1450,7 @@ local function startTweening()
                 end
             end
         end
+
         if pickUpGoldEnabled and chest then
             for _, v in next, chest.Contents:GetChildren() do
                 if v.Name == "Gold" then
@@ -1510,6 +1458,7 @@ local function startTweening()
                 end
             end
         end
+
         if pressEnabled and chest then
             local deployable = GetDeployable("Coin Press", 25)
             if deployable then
@@ -1527,7 +1476,6 @@ local function startTweening()
     if tweenConn then tweenConn:Disconnect(); tweenConn = nil end
     if tween then tween:Cancel(); tween = nil end
 end
-
 
 
 local function autoJump()
