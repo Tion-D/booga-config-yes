@@ -1390,19 +1390,9 @@ local function startWalking()
     end
 end
 
-local _tweenIdx = nil
-local _badUntil = {}
-
-local function _asVec3(p)
-    if typeof(p) == "Vector3" then return p end
-    return Vector3.new(p.X, p.Y, p.Z)
-end
-
-local function _nextIdx(i, n)
-    i = i + 1
-    if i > n then i = 1 end
-    return i
-end
+local _tweenIdx = 1
+local DEBUG_TWEEN = false
+local function dbg(...) if DEBUG_TWEEN then print("[TWEEN]", ...) end end
 
 local function startTweening()
     if not Humanoid or not Humanoid.Parent then
@@ -1416,52 +1406,39 @@ local function startTweening()
         return
     end
 
-    local N = #positionList
-    if not _tweenIdx or _tweenIdx < 1 or _tweenIdx > N then
-        _tweenIdx = 1
-    end
+    _tweenIdx = 1
 
-    local REACH_RADIUS        = 4
-    local MAX_TRAVEL_SECS     = 25
-    local NO_PROGRESS_SECS    = 2.5
-    local MIN_IMPROVE_STUDS   = 0.75
-    local TELEPORT_BACK_DINC  = 8
-    local TELEPORT_STEP_JUMP  = 15
-    local BAD_POINT_COOLDOWN  = 8
+    local REACH_RADIUS  = 4
+    local MAX_TRAVEL_SECS = 25
+    local NO_PROGRESS_SECS = 2.5
+    local MIN_IMPROVE_STUDS = 0.75
+    local TELEPORT_BACK_DINC = 8
+    local TELEPORT_STEP_JUMP = 15
 
     while tweeningEnabled do
+        local N = #positionList
         if N == 0 then break end
         if _tweenIdx > N then _tweenIdx = 1 end
 
-        local now = os.clock()
-        if _badUntil[_tweenIdx] and _badUntil[_tweenIdx] > now then
-            _tweenIdx = _nextIdx(_tweenIdx, N)
-            task.wait() -- yield a tick
+        local p = positionList[_tweenIdx]
+        if not p then
+            dbg("nil point at index", _tweenIdx, "→ advance")
+            _tweenIdx = (_tweenIdx % N) + 1
+            task.wait()
             continue
         end
 
-        local pos = positionList[_tweenIdx]
-        if not pos then
-            _tweenIdx = _nextIdx(_tweenIdx, N)
-            continue
-        end
-        local targetPos = _asVec3(pos)
-
-        if PathBlocked(Root.Position, targetPos) then
-            _badUntil[_tweenIdx] = now + BAD_POINT_COOLDOWN
-            _tweenIdx = _nextIdx(_tweenIdx, N)
-            continue
-        end
-
+        local targetPos = (typeof(p) == "Vector3") and p or Vector3.new(p.X, p.Y, p.Z)
         local duration = math.max(0.05, (Root.Position - targetPos).Magnitude / math.max(1, walkSpeed))
-        local ti = TweenInfo.new(duration, Enum.EasingStyle.Linear)
 
+        -- kill any previous tween
         if tweenConn then tweenConn:Disconnect(); tweenConn = nil end
-        if tween then tween:Cancel() end
+        if tween then tween:Cancel(); tween = nil end
 
-        tween = TweenService:Create(Root, ti, { CFrame = CFrame.new(targetPos) })
+        dbg(("→ #%d / %d  to (%.1f,%.1f,%.1f)"):format(_tweenIdx, N, targetPos.X, targetPos.Y, targetPos.Z))
+        tween = TweenService:Create(Root, TweenInfo.new(duration, Enum.EasingStyle.Linear), { CFrame = CFrame.new(targetPos) })
+
         local finished, giveUp = false, false
-
         tweenConn = tween.Completed:Connect(function()
             finished = true
             if tweenConn then tweenConn:Disconnect(); tweenConn = nil end
@@ -1484,12 +1461,12 @@ local function startTweening()
 
             local stepJump = (curPos - lastPos).Magnitude
             if (curDist - lastDist) >= TELEPORT_BACK_DINC or stepJump >= TELEPORT_STEP_JUMP then
-                giveUp = true
+                giveUp = true; dbg("giveUp: jump/backtrack detected at index", _tweenIdx)
                 break
             end
             if (tick() - t0) > MAX_TRAVEL_SECS
-                or ((tick() - lastCheck) > NO_PROGRESS_SECS and (lastDist - curDist) < MIN_IMPROVE_STUDS) then
-                giveUp = true
+               or ((tick() - lastCheck) > NO_PROGRESS_SECS and (lastDist - curDist) < MIN_IMPROVE_STUDS) then
+                giveUp = true; dbg("giveUp: timeout/no-progress at index", _tweenIdx)
                 break
             end
 
@@ -1499,49 +1476,20 @@ local function startTweening()
         if tweenConn then tweenConn:Disconnect(); tweenConn = nil end
         if tween then tween:Cancel(); tween = nil end
 
-        if giveUp then
-            _badUntil[_tweenIdx] = os.clock() + BAD_POINT_COOLDOWN
-            _tweenIdx = _nextIdx(_tweenIdx, N)
+        _tweenIdx = (_tweenIdx % N) + 1
+        if not giveUp and finished then
+            dbg("ok → next index", _tweenIdx)
         else
-            _tweenIdx = _nextIdx(_tweenIdx, N)
+            dbg("skipped → next index", _tweenIdx)
         end
 
         task.wait(0.05)
-
-        if campEnabled and chest and chest.Contents:FindFirstChild("Gold") then
-            for _, v in next, GetDeployable("Campfire", 25, true) do
-                if v.deployable.Board.Billboard.Backdrop.TextLabel.Text <= "10" then
-                    local itemID = GetFuel()
-                    if itemID then
-                        Packets.InteractStructure.send({ entityID = v.deployable:GetAttribute("EntityID"), itemID = itemID })
-                    end
-                end
-            end
-        end
-        if pickUpGoldEnabled and chest then
-            for _, v in next, chest.Contents:GetChildren() do
-                if v.Name == "Gold" then
-                    Packets.Pickup.send(v:GetAttribute("EntityID"))
-                end
-            end
-        end
-        if pressEnabled and chest then
-            local deployable = GetDeployable("Coin Press", 25)
-            if deployable then
-                for _, v in next, chest.Contents:GetChildren() do
-                    if v.Name == "Gold" then
-                        Packets.Pickup.send(v:GetAttribute("EntityID"))
-                        Packets.InteractStructure.send({ entityID = deployable:GetAttribute("EntityID"), itemID = ItemIDS[v.Name] })
-                        task.wait(0.2)
-                    end
-                end
-            end
-        end
     end
 
     if tweenConn then tweenConn:Disconnect(); tweenConn = nil end
     if tween then tween:Cancel(); tween = nil end
 end
+
 
 
 
