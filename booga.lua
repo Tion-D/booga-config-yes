@@ -1337,6 +1337,7 @@ local function startWalking()
     end
 
 end
+
 local function startTweening()
     if not Humanoid or not Humanoid.Parent then
         Notify("Humanoid not found, reinitializing.")
@@ -1357,20 +1358,68 @@ local function startTweening()
     local TELEPORT_STEP_JUMP = 15
     local RUBBERBAND_THRESHOLD = 5
 
-    while tweeningEnabled do
-        local rp = Root.Position
-        local i, bestD = 1, math.huge
+    local raycastParams = RaycastParams.new()
+    raycastParams.FilterType = Enum.RaycastFilterType.Blacklist
+    raycastParams.FilterDescendantsInstances = {Character}
+    raycastParams.IgnoreWater = true
+
+    local function hasLineOfSight(from, to)
+        local direction = (to - from)
+        local distance = direction.Magnitude
+        if distance < 5 then return true end
+        
+        local result = workspace:Raycast(from, direction, raycastParams)
+        return result == nil
+    end
+
+    local function findBestReachablePosition(currentPos)
+        local candidates = {}
+        
         for j = 1, #positionList do
             local p = positionList[j]
             if p and p.X and p.Y and p.Z then
-                local d = (rp - Vector3.new(p.X, p.Y, p.Z)).Magnitude
-                if d < bestD then i, bestD = j, d end
+                local targetPos = Vector3.new(p.X, p.Y, p.Z)
+                local distance = (currentPos - targetPos).Magnitude
+                
+                if hasLineOfSight(currentPos, targetPos) then
+                    table.insert(candidates, {index = j, distance = distance})
+                end
             end
+        end
+        
+        if #candidates > 0 then
+            table.sort(candidates, function(a, b) return a.distance < b.distance end)
+            return candidates[1].index, candidates[1].distance
+        end
+
+        local fallbackIndex, fallbackDist = 1, math.huge
+        for j = 1, #positionList do
+            local p = positionList[j]
+            if p and p.X and p.Y and p.Z then
+                local d = (currentPos - Vector3.new(p.X, p.Y, p.Z)).Magnitude
+                if d < fallbackDist then
+                    fallbackIndex, fallbackDist = j, d
+                end
+            end
+        end
+        
+        return fallbackIndex, fallbackDist
+    end
+
+    while tweeningEnabled do
+        local rp = Root.Position
+        local i, bestD = findBestReachablePosition(rp)
+        
+        if not i then
+            Notify("No reachable positions found.")
+            task.wait(1)
+            continue
         end
 
         local visitedCount = 0
         local restartNearest = false
-        
+        local consecutiveBlocked = 0 
+
         while tweeningEnabled and visitedCount < #positionList do
             local pos = positionList[i]
             if not (pos and pos.X and pos.Y and pos.Z) then
@@ -1379,6 +1428,24 @@ local function startTweening()
             end
 
             local targetPos = Vector3.new(pos.X, pos.Y, pos.Z)
+            
+            if not hasLineOfSight(Root.Position, targetPos) then
+                consecutiveBlocked = consecutiveBlocked + 1
+                
+                if consecutiveBlocked >= 3 then
+                    Notify("Path blocked, finding new route.")
+                    restartNearest = true
+                    break
+                end
+                
+                i = (i % #positionList) + 1
+                visitedCount = visitedCount + 1
+                task.wait(0.1)
+                continue
+            end
+            
+            consecutiveBlocked = 0
+            
             local duration = math.max(0.05, (Root.Position - targetPos).Magnitude / walkSpeed)
             local ti = TweenInfo.new(duration, Enum.EasingStyle.Linear)
 
