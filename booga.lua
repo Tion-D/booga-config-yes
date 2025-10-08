@@ -1337,7 +1337,6 @@ local function startWalking()
     end
 
 end
-
 local function startTweening()
     if not Humanoid or not Humanoid.Parent then
         Notify("Humanoid not found, reinitializing.")
@@ -1368,8 +1367,10 @@ local function startTweening()
             end
         end
 
-        for _ = 1, #positionList do
-            if not tweeningEnabled then break end
+        local visitedCount = 0
+        local restartNearest = false
+        
+        while tweeningEnabled and visitedCount < #positionList do
             local pos = positionList[i]
             if not (pos and pos.X and pos.Y and pos.Z) then
                 Notify("Invalid position data.")
@@ -1386,7 +1387,8 @@ local function startTweening()
             tweenInfo = { MaxSpeed = Humanoid.WalkSpeed, CFrame = CFrame.new(targetPos) }
             tween = TweenService:Create(Root, ti, { CFrame = CFrame.new(targetPos) })
 
-            local completed, restartNearest = false, false
+            local completed = false
+            restartNearest = false
             tweenConn = tween.Completed:Connect(function()
                 completed = true
                 if tweenConn then tweenConn:Disconnect(); tweenConn = nil end
@@ -1433,12 +1435,16 @@ local function startTweening()
             if restartNearest then
                 Root.Anchored = false
                 task.wait(0.15)
-                break
+                break  -- Break inner loop to restart from nearest
             end
 
+            visitedCount = visitedCount + 1
             i = (i % #positionList) + 1
             task.wait(0.1)
         end
+        
+        -- If we completed all positions without needing restart, continue the outer loop
+        -- This ensures we keep looping through positions
 
         if campEnabled and chest and chest.Contents:FindFirstChild("Gold") then
             for _, v in next, GetDeployable("Campfire", 25, true) do
@@ -1476,7 +1482,6 @@ local function startTweening()
     if tweenConn then tweenConn:Disconnect(); tweenConn = nil end
     if tween then tween:Cancel(); tween = nil end
 end
-
 
 local function autoJump()
     while autoJumpEnabled do
