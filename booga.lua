@@ -1355,6 +1355,7 @@ local function startTweening()
     local MIN_IMPROVE_STUDS = 0.75
     local TELEPORT_BACK_DINC = 8
     local TELEPORT_STEP_JUMP = 15
+    local RUBBERBAND_THRESHOLD = 5
 
     while tweeningEnabled do
         local rp = Root.Position
@@ -1400,9 +1401,10 @@ local function startTweening()
             local lastPoll = t0
             local lastDist = (Root.Position - targetPos).Magnitude
             local lastPos = Root.Position
+            local rubberbandCount = 0
 
             while tweeningEnabled and not completed do
-                task.wait(0.2)
+                task.wait(0.15)
 
                 local curPos  = Root.Position
                 local curDist = (curPos - targetPos).Magnitude
@@ -1413,18 +1415,51 @@ local function startTweening()
                 end
 
                 local stepJump = (curPos - lastPos).Magnitude
-                if (curDist - lastDist) >= TELEPORT_BACK_DINC or stepJump >= TELEPORT_STEP_JUMP then
+                local distanceChange = curDist - lastDist
+                
+                if distanceChange >= TELEPORT_BACK_DINC then
+                    Notify("Large rubberband detected, restarting from nearest position.")
+                    restartNearest = true
+                    break
+                end
+                
+                if stepJump >= TELEPORT_STEP_JUMP then
+                    Notify("Position jump detected, restarting from nearest position.")
+                    restartNearest = true
+                    break
+                end
+                
+                if distanceChange > RUBBERBAND_THRESHOLD and (tick() - lastPoll) < 0.5 then
+                    rubberbandCount = rubberbandCount + 1
+                    if rubberbandCount >= 2 then
+                        Notify("Rubberband detected, restarting from nearest position.")
+                        restartNearest = true
+                        break
+                    end
+                else
+                    rubberbandCount = 0
+                end
+
+                local timeSinceStart = tick() - t0
+                local timeSinceProgress = tick() - lastPoll
+                local distanceImprovement = lastDist - curDist
+                
+                if timeSinceStart > MAX_TRAVEL_SECS then
+                    Notify("Travel timeout, restarting from nearest position.")
+                    restartNearest = true
+                    break
+                end
+                
+                if timeSinceProgress > NO_PROGRESS_SECS and distanceImprovement < MIN_IMPROVE_STUDS then
+                    Notify("No progress detected, restarting from nearest position.")
                     restartNearest = true
                     break
                 end
 
-                if (tick() - t0) > MAX_TRAVEL_SECS
-                    or ((tick() - lastPoll) > NO_PROGRESS_SECS and (lastDist - curDist) < MIN_IMPROVE_STUDS) then
-                    restartNearest = true
-                    break
+                if distanceImprovement > 0 then
+                    lastPoll = tick()
                 end
-
-                lastPoll = tick()
+                
                 lastDist = curDist
                 lastPos = curPos
             end
@@ -1434,17 +1469,14 @@ local function startTweening()
 
             if restartNearest then
                 Root.Anchored = false
-                task.wait(0.15)
-                break  -- Break inner loop to restart from nearest
+                task.wait(0.2)
+                break
             end
 
             visitedCount = visitedCount + 1
             i = (i % #positionList) + 1
             task.wait(0.1)
         end
-        
-        -- If we completed all positions without needing restart, continue the outer loop
-        -- This ensures we keep looping through positions
 
         if campEnabled and chest and chest.Contents:FindFirstChild("Gold") then
             for _, v in next, GetDeployable("Campfire", 25, true) do
