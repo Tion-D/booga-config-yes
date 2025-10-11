@@ -100,7 +100,7 @@ local wasteFoodTo = 50
 local wasteFoodLoopThread = nil
 local deleteEnabled = false
 local WalkSpeedEnabled = false
-local WalkSpeedValue = 16
+local WalkSpeedValue = 20
 local originalWalkSpeed
 local maxSlopeEnabled = false
 local autoJumpEnabled = false
@@ -1337,6 +1337,100 @@ local function startWalking()
     end
 
 end
+local pf = PathfindingService:CreatePath({
+    AgentRadius = 2.5,
+    AgentHeight = 5,
+    AgentCanJump = true,
+    WaypointSpacing = 4,
+    Costs = { Water = 2 }
+})
+
+local function getIgnoreList()
+    local list = { Character }
+    if chest then table.insert(list, chest) end
+    if Items then table.insert(list, Items) end
+    for _, n in ipairs({ "VFX", "FX", "Particles", "Projectiles" }) do
+        local f = Workspace:FindFirstChild(n)
+        if f then table.insert(list, f) end
+    end
+    return list
+end
+
+local function makeRayParams()
+    local rp = RaycastParams.new()
+    rp.FilterType = Enum.RaycastFilterType.Blacklist
+    rp.FilterDescendantsInstances = getIgnoreList()
+    rp.IgnoreWater = true
+    rp.RespectCanCollide = true
+    return rp
+end
+
+local function hasLineOfSight(from, to)
+    local delta = to - from
+    local dist = delta.Magnitude
+    if dist < 7 then return true end
+
+    local up = Vector3.new(0, 2.0, 0)
+    local origin = from + up
+    local dir = (to + up) - origin
+
+    local hit = workspace:Raycast(origin, dir, makeRayParams())
+    return hit == nil
+end
+
+local function isPathReachable(from, to, maxHops)
+    -- Avoid huge solves; early out if absurdly far
+    if (to - from).Magnitude > 350 then return false end
+    local ok = pcall(function() pf:ComputeAsync(from, to) end)
+    if not ok then return false end
+    if pf.Status ~= Enum.PathStatus.Success then return false end
+    local wps = pf:GetWaypoints()
+    if not wps or #wps == 0 then return false end
+    if maxHops and #wps > maxHops then return false end
+    return true, wps
+end
+
+local function isReachable(from, to)
+    if hasLineOfSight(from, to) then return true end
+    -- small path solve with hop cap to keep it cheap
+    local ok = isPathReachable(from, to, 30)
+    return ok == true
+end
+
+local function findBestReachablePosition(currentPos)
+    local bestIdx, bestDist = nil, math.huge
+    local nearestIdx, nearestDist = nil, math.huge
+
+    for j = 1, #positionList do
+        local p = positionList[j]
+        if p and p.X and p.Y and p.Z then
+            local target = Vector3.new(p.X, p.Y, p.Z)
+            local d = (currentPos - target).Magnitude
+
+            if d < nearestDist then
+                nearestDist, nearestIdx = d, j
+            end
+            if d < bestDist and isReachable(currentPos, target) then
+                bestDist, bestIdx = d, j
+            end
+        end
+    end
+
+    if bestIdx then
+        return bestIdx, bestDist, true
+    else
+        return nearestIdx, nearestDist, false
+    end
+end
+
+local lastNotifyAt = 0
+local function NotifyOnceEvery(msg, cooldown)
+    local t = os.clock()
+    if t - lastNotifyAt >= (cooldown or 1.25) then
+        lastNotifyAt = t
+        Notify(msg)
+    end
+end
 
 local function startTweening()
     if not Humanoid or not Humanoid.Parent then
@@ -1358,110 +1452,59 @@ local function startTweening()
     local TELEPORT_STEP_JUMP = 15
     local RUBBERBAND_THRESHOLD = 5
 
-    local raycastParams = RaycastParams.new()
-    raycastParams.FilterType = Enum.RaycastFilterType.Blacklist
-    raycastParams.FilterDescendantsInstances = {Character}
-    raycastParams.IgnoreWater = true
-
-    local function hasLineOfSight(from, to)
-        local direction = (to - from)
-        local distance = direction.Magnitude
-        if distance < 5 then return true end
-        
-        local result = workspace:Raycast(from, direction, raycastParams)
-        return result == nil
-    end
-
-    local function findBestReachablePosition(currentPos)
-        local candidates = {}
-        
-        for j = 1, #positionList do
-            local p = positionList[j]
-            if p and p.X and p.Y and p.Z then
-                local targetPos = Vector3.new(p.X, p.Y, p.Z)
-                local distance = (currentPos - targetPos).Magnitude
-                
-                if hasLineOfSight(currentPos, targetPos) then
-                    table.insert(candidates, {index = j, distance = distance})
-                end
-            end
-        end
-        
-        if #candidates > 0 then
-            table.sort(candidates, function(a, b) return a.distance < b.distance end)
-            return candidates[1].index, candidates[1].distance
-        end
-
-        local fallbackIndex, fallbackDist = 1, math.huge
-        for j = 1, #positionList do
-            local p = positionList[j]
-            if p and p.X and p.Y and p.Z then
-                local d = (currentPos - Vector3.new(p.X, p.Y, p.Z)).Magnitude
-                if d < fallbackDist then
-                    fallbackIndex, fallbackDist = j, d
-                end
-            end
-        end
-        
-        return fallbackIndex, fallbackDist
-    end
+    local walkSpeed = math.max(8, Humanoid.WalkSpeed)
 
     while tweeningEnabled do
         local rp = Root.Position
-        local i, bestD = findBestReachablePosition(rp)
-        
+        local i, _, foundReachable = findBestReachablePosition(rp)
+
         if not i then
-            Notify("No reachable positions found.")
-            task.wait(1)
+            NotifyOnceEvery("No positions found.", 2)
+            task.wait(0.6)
             continue
         end
+        if not foundReachable then
+            NotifyOnceEvery("Path blocked (no LOS); trying nearest anyway…", 2)
+        end
 
-        local visitedCount = 0
+        local visited = 0
         local restartNearest = false
-        local consecutiveBlocked = 0 
+        local consecutiveBlocked = 0
 
-        while tweeningEnabled and visitedCount < #positionList do
+        while tweeningEnabled and visited < #positionList do
             local pos = positionList[i]
             if not (pos and pos.X and pos.Y and pos.Z) then
-                Notify("Invalid position data.")
+                NotifyOnceEvery("Invalid position data.", 2)
                 break
             end
 
             local targetPos = Vector3.new(pos.X, pos.Y, pos.Z)
-            
-            if not hasLineOfSight(Root.Position, targetPos) then
-                consecutiveBlocked = consecutiveBlocked + 1
-                
-                if consecutiveBlocked >= 3 then
-                    Notify("Path blocked, finding new route.")
+            if not isReachable(Root.Position, targetPos) then
+                consecutiveBlocked += 1
+                if consecutiveBlocked >= 2 then
+                    NotifyOnceEvery("Path blocked. Reselecting nearest reachable…", 2.5)
                     restartNearest = true
                     break
                 end
-                
                 i = (i % #positionList) + 1
-                visitedCount = visitedCount + 1
-                task.wait(0.1)
+                visited += 1
+                task.wait(0.15)
                 continue
             end
-            
             consecutiveBlocked = 0
-            
-            local duration = math.max(0.05, (Root.Position - targetPos).Magnitude / walkSpeed)
+
+            local duration = math.max(0.08, (Root.Position - targetPos).Magnitude / walkSpeed)
             local ti = TweenInfo.new(duration, Enum.EasingStyle.Linear)
 
             if tweenConn then tweenConn:Disconnect(); tweenConn = nil end
             if tween then tween:Cancel() end
 
-            tweenInfo = { MaxSpeed = Humanoid.WalkSpeed, CFrame = CFrame.new(targetPos) }
             tween = TweenService:Create(Root, ti, { CFrame = CFrame.new(targetPos) })
-
             local completed = false
-            restartNearest = false
             tweenConn = tween.Completed:Connect(function()
                 completed = true
                 if tweenConn then tweenConn:Disconnect(); tweenConn = nil end
             end)
-
             tween:Play()
 
             local t0 = tick()
@@ -1472,7 +1515,6 @@ local function startTweening()
 
             while tweeningEnabled and not completed do
                 task.wait(0.15)
-
                 local curPos  = Root.Position
                 local curDist = (curPos - targetPos).Magnitude
 
@@ -1483,23 +1525,21 @@ local function startTweening()
 
                 local stepJump = (curPos - lastPos).Magnitude
                 local distanceChange = curDist - lastDist
-                
+
                 if distanceChange >= TELEPORT_BACK_DINC then
-                    Notify("Large rubberband detected, restarting from nearest position.")
+                    NotifyOnceEvery("Large rubberband; restarting near.", 2)
                     restartNearest = true
                     break
                 end
-                
                 if stepJump >= TELEPORT_STEP_JUMP then
-                    Notify("Position jump detected, restarting from nearest position.")
+                    NotifyOnceEvery("Position jump; restarting near.", 2)
                     restartNearest = true
                     break
                 end
-                
                 if distanceChange > RUBBERBAND_THRESHOLD and (tick() - lastPoll) < 0.5 then
-                    rubberbandCount = rubberbandCount + 1
+                    rubberbandCount += 1
                     if rubberbandCount >= 2 then
-                        Notify("Rubberband detected, restarting from nearest position.")
+                        NotifyOnceEvery("Rubberband detected; restarting near.", 2)
                         restartNearest = true
                         break
                     end
@@ -1510,15 +1550,15 @@ local function startTweening()
                 local timeSinceStart = tick() - t0
                 local timeSinceProgress = tick() - lastPoll
                 local distanceImprovement = lastDist - curDist
-                
+
                 if timeSinceStart > MAX_TRAVEL_SECS then
-                    Notify("Travel timeout, restarting from nearest position.")
+                    NotifyOnceEvery("Travel timeout; restarting near.", 2)
                     restartNearest = true
                     break
                 end
-                
+
                 if timeSinceProgress > NO_PROGRESS_SECS and distanceImprovement < MIN_IMPROVE_STUDS then
-                    Notify("No progress detected, restarting from nearest position.")
+                    NotifyOnceEvery("No progress; restarting near.", 2)
                     restartNearest = true
                     break
                 end
@@ -1526,7 +1566,6 @@ local function startTweening()
                 if distanceImprovement > 0 then
                     lastPoll = tick()
                 end
-                
                 lastDist = curDist
                 lastPos = curPos
             end
@@ -1535,16 +1574,17 @@ local function startTweening()
             if tween then tween:Cancel(); tween = nil end
 
             if restartNearest then
-                Root.Anchored = false
-                task.wait(0.2)
+                -- brief backoff to avoid hot loop
+                task.wait(0.25)
                 break
             end
 
-            visitedCount = visitedCount + 1
+            visited += 1
             i = (i % #positionList) + 1
-            task.wait(0.1)
+            task.wait(0.08)
         end
 
+        -- your camp/gold/press logic below (unchanged)...
         if campEnabled and chest and chest.Contents:FindFirstChild("Gold") then
             for _, v in next, GetDeployable("Campfire", 25, true) do
                 if v.deployable.Board.Billboard.Backdrop.TextLabel.Text <= "10" then
@@ -1570,7 +1610,10 @@ local function startTweening()
                 for _, v in next, chest.Contents:GetChildren() do
                     if v.Name == "Gold" then
                         Packets.Pickup.send(v:GetAttribute("EntityID"))
-                        Packets.InteractStructure.send({ entityID = deployable:GetAttribute("EntityID"), itemID = ItemIDS[v.Name] })
+                        Packets.InteractStructure.send({
+                            entityID = deployable:GetAttribute("EntityID"),
+                            itemID = ItemIDS[v.Name]
+                        })
                         task.wait(0.2)
                     end
                 end
