@@ -100,7 +100,7 @@ local wasteFoodTo = 50
 local wasteFoodLoopThread = nil
 local deleteEnabled = false
 local WalkSpeedEnabled = false
-local WalkSpeedValue = 20
+local WalkSpeedValue = 16
 local originalWalkSpeed
 local maxSlopeEnabled = false
 local autoJumpEnabled = false
@@ -1340,7 +1340,7 @@ end
 local function startTweening()
     if not Humanoid or not Humanoid.Parent then
         Notify("Humanoid not found, reinitializing.")
-        Character = Players.LocalPlayer.Character or Players.LocalPlayer.CharacterAdded:Wait()
+        Character= Players.LocalPlayer.Character or Players.LocalPlayer.CharacterAdded:Wait()
         Humanoid = Character:WaitForChild("Humanoid")
         Root = Character:WaitForChild("HumanoidRootPart")
     end
@@ -1350,102 +1350,119 @@ local function startTweening()
     end
 
     local REACH_RADIUS = 4
-    local MAX_TRAVEL_SECS = 15
-    local NO_PROGRESS_SECS = 2.5
     local MIN_IMPROVE_STUDS = 0.75
+    local NO_PROGRESS_SECS = 2.5
     local TELEPORT_BACK_DINC = 8
     local TELEPORT_STEP_JUMP = 15
 
-    while tweeningEnabled do
-        local rp = Root.Position
-        local i, bestD = 1, math.huge
+    local function nearestIndex(fromPos)
+        local bestI, bestD = nil, math.huge
         for j = 1, #positionList do
             local p = positionList[j]
             if p and p.X and p.Y and p.Z then
-                local d = (rp - Vector3.new(p.X, p.Y, p.Z)).Magnitude
-                if d < bestD then i, bestD = j, d end
+                local d = (fromPos - Vector3.new(p.X, p.Y, p.Z)).Magnitude
+                if d < bestD then bestI, bestD = j, d end
             end
         end
+        return bestI or 1
+    end
 
-        local visitedCount = 0
-        local restartNearest = false
-        
-        while tweeningEnabled and visitedCount < #positionList do
-            local pos = positionList[i]
-            if not (pos and pos.X and pos.Y and pos.Z) then
-                Notify("Invalid position data.")
-                break
-            end
+    local curIndex = nearestIndex(Root.Position)
+    local fails = table.create(#positionList, 0)
 
-            local targetPos = Vector3.new(pos.X, pos.Y, pos.Z)
-            local duration = math.max(0.05, (Root.Position - targetPos).Magnitude / walkSpeed)
-            local ti = TweenInfo.new(duration, Enum.EasingStyle.Linear)
+    while tweeningEnabled do
+        if curIndex < 1 or curIndex > #positionList then
+            curIndex = 1
+        end
 
+        local pos = positionList[curIndex]
+        if not (pos and pos.X and pos.Y and pos.Z) then
+            Notify(("Invalid position at index %d, skipping."):format(curIndex))
+            curIndex = (curIndex % #positionList) + 1
+            task.wait(0.05)
+            continue
+        end
+
+        local targetPos = Vector3.new(pos.X, pos.Y, pos.Z)
+
+        local dist = (Root.Position - targetPos).Magnitude
+        local speed = math.max(1, Humanoid.WalkSpeed or 16)
+        local MAX_TRAVEL_SECS = math.max(15, dist / (speed * 0.6))
+
+        local duration = math.max(0.05, dist / speed)
+        local ti = TweenInfo.new(duration, Enum.EasingStyle.Linear)
+
+        if tweenConn then tweenConn:Disconnect(); tweenConn = nil end
+        if tween     then tween:Cancel();        tween = nil end
+
+        tween = TweenService:Create(Root, ti, { CFrame = CFrame.new(targetPos) })
+
+        local completed, restartToNext = false, false
+        tweenConn = tween.Completed:Connect(function()
+            completed = true
             if tweenConn then tweenConn:Disconnect(); tweenConn = nil end
-            if tween then tween:Cancel() end
+        end)
 
-            tweenInfo = { MaxSpeed = Humanoid.WalkSpeed, CFrame = CFrame.new(targetPos) }
-            tween = TweenService:Create(Root, ti, { CFrame = CFrame.new(targetPos) })
+        tween:Play()
 
-            local completed = false
-            restartNearest = false
-            tweenConn = tween.Completed:Connect(function()
+        local t0, lastPoll = tick(), tick()
+        local lastPos  = Root.Position
+        local lastDist = (lastPos - targetPos).Magnitude
+
+        while tweeningEnabled and not completed do
+            task.wait(0.2)
+
+            local curPos  = Root.Position
+            local curDist = (curPos - targetPos).Magnitude
+
+            if curDist <= REACH_RADIUS then
                 completed = true
-                if tweenConn then tweenConn:Disconnect(); tweenConn = nil end
-            end)
-
-            tween:Play()
-
-            local t0 = tick()
-            local lastPoll = t0
-            local lastDist = (Root.Position - targetPos).Magnitude
-            local lastPos = Root.Position
-
-            while tweeningEnabled and not completed do
-                task.wait(0.2)
-
-                local curPos  = Root.Position
-                local curDist = (curPos - targetPos).Magnitude
-
-                if curDist <= REACH_RADIUS then
-                    completed = true
-                    break
-                end
-
-                local stepJump = (curPos - lastPos).Magnitude
-                if (curDist - lastDist) >= TELEPORT_BACK_DINC or stepJump >= TELEPORT_STEP_JUMP then
-                    restartNearest = true
-                    break
-                end
-
-                if (tick() - t0) > MAX_TRAVEL_SECS
-                    or ((tick() - lastPoll) > NO_PROGRESS_SECS and (lastDist - curDist) < MIN_IMPROVE_STUDS) then
-                    restartNearest = true
-                    break
-                end
-
-                lastPoll = tick()
-                lastDist = curDist
-                lastPos = curPos
-            end
-
-            if tweenConn then tweenConn:Disconnect(); tweenConn = nil end
-            if tween then tween:Cancel(); tween = nil end
-
-            if restartNearest then
-                Root.Anchored = false
-                task.wait(0.15)
                 break
             end
 
-            visitedCount = visitedCount + 1
-            i = (i % #positionList) + 1
-            task.wait(0.1)
+            local stepJump = (curPos - lastPos).Magnitude
+            if (curDist - lastDist) >= TELEPORT_BACK_DINC or stepJump >= TELEPORT_STEP_JUMP then
+                restartToNext = true
+                break
+            end
+
+            if (tick() - t0) > MAX_TRAVEL_SECS
+            or ((tick() - lastPoll) > NO_PROGRESS_SECS and (lastDist - curDist) < MIN_IMPROVE_STUDS) then
+                restartToNext = true
+                break
+            end
+
+            lastPoll = tick()
+            lastDist = curDist
+            lastPos  = curPos
         end
+
+        if tweenConn then tweenConn:Disconnect(); tweenConn = nil end
+        if tween then tween:Cancel(); tween = nil end
+
+        if restartToNext then
+            fails[curIndex] = (fails[curIndex] or 0) + 1
+            if fails[curIndex] >= 3 then
+                Notify(("Skipping idx %d after repeated fails."):format(curIndex))
+                curIndex = (curIndex % #positionList) + 1
+                fails[curIndex] = 0
+            else
+                curIndex = (curIndex % #positionList) + 1
+            end
+            Root.Anchored = false
+            task.wait(0.15)
+            continue
+        end
+
+        fails[curIndex] = 0
+        curIndex = (curIndex % #positionList) + 1
+        task.wait(0.1)
+    end
 
     if tweenConn then tweenConn:Disconnect(); tweenConn = nil end
-    if tween then tween:Cancel(); tween = nil end
+    if tween     then tween:Cancel();        tween = nil end
 end
+
 
 local function autoJump()
     while autoJumpEnabled do
