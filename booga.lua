@@ -713,6 +713,20 @@ end
 
 local function pickupGolds()
     while pickupGold do
+        if chest and chest.Parent then
+            if pickUpGoldEnabled then
+                for _, v in next, chest.Contents:GetChildren() do
+                    if v.Name == "Gold" then
+                        local id = v:GetAttribute("EntityID")
+                        if id then
+                            Packets.Pickup.send(id)
+                            task.wait(0.05)
+                        end
+                    end
+                end
+            end
+        end
+
         local ItemsFolder = Workspace:FindFirstChild("Items")
         if ItemsFolder then
             for _, item in ipairs(ItemsFolder:GetChildren()) do
@@ -733,12 +747,26 @@ local function pickupGolds()
                 end
             end
         end
+
         task.wait(0.25)
     end
 end
 
 local function pickupRawGolds()
     while pickupRawGold do
+        if chest and chest.Parent then
+            for _, v in next, chest.Contents:GetChildren() do
+                if v.Name == "Raw Gold" or v.Name == "Gold" then
+                    local id = v:GetAttribute("EntityID")
+                    if id then
+                        Packets.Pickup.send(id)
+                        task.wait(0.05)
+                    end
+                end
+            end
+
+        end
+
         local ItemsFolder = Workspace:FindFirstChild("Items")
         if ItemsFolder then
             for _, item in ipairs(ItemsFolder:GetChildren()) do
@@ -759,9 +787,12 @@ local function pickupRawGolds()
                 end
             end
         end
+
         task.wait(0.25)
     end
 end
+
+
 local function sendEntitiesBuffer(entities)
     local bufferSize = #entities * 4 + 2
     local entityBuffer = buffer.create(bufferSize)
