@@ -179,6 +179,16 @@ local defaultConfigFile = "MidasConfig.txt"
 local configContent = game:HttpGet(defaultConfigUrl)
 writefile(defaultConfigFile, configContent)
 
+LocalPlayer:SetAttribute("hasSpawned", false)
+
+LocalPlayer.CharacterAdded:Connect(function(char)
+    LocalPlayer:SetAttribute("hasSpawned", false)
+    local hum = char:WaitForChild("Humanoid")
+    hum.Died:Connect(function()
+        LocalPlayer:SetAttribute("hasSpawned", false)
+    end)
+end)
+
 local function make_8x8()
     if not Character or not Character.Parent then
         Character = Players.LocalPlayer.Character or Players.LocalPlayer.CharacterAdded:Wait()
@@ -1356,11 +1366,11 @@ local function startTweening()
         return
     end
 
-    local REACH_RADIUS        = 4
-    local MIN_IMPROVE_STUDS   = 0.75
-    local NO_PROGRESS_SECS    = 2.5
-    local TELEPORT_BACK_DINC  = 8
-    local TELEPORT_STEP_JUMP  = 15
+    local REACH_RADIUS = 4
+    local MIN_IMPROVE_STUDS = 0.75
+    local NO_PROGRESS_SECS = 2.5
+    local TELEPORT_BACK_DINC = 8
+    local TELEPORT_STEP_JUMP = 15
 
     local RUBBER_DEV_STUDS = 6
     local SETTLE_SECS = 0.40
@@ -2089,7 +2099,9 @@ local function spawnAtBed()
         warn(("[AutoSpawn] Bed cooldown: %ds left"):format(cd))
         return false
     end
-    local ok, serverStamp = pcall(function() return SpawnFirst:InvokeServer(true) end)
+    local ok, serverStamp = pcall(function()
+        return SpawnFirst:InvokeServer(true)
+    end)
     if ok and serverStamp then
         LocalPlayer:SetAttribute("hasSpawned", true)
         if GameUtil and GameUtil.Data then GameUtil.Data.lastSpawnFromBed = serverStamp end
@@ -2106,6 +2118,7 @@ local function spawnAtBed()
         return false
     end
 end
+
 
 
 local Fluent = loadstring(game:HttpGet("https://github.com/dawid-scripts/Fluent/releases/latest/download/main.lua"))()
@@ -2779,6 +2792,12 @@ Tabs.Extra:AddToggle("AutoRebirth", {
     end
 })
 
+local function isOnSpawnScreen()
+    local sg = PG:FindFirstChild("SpawnGui")
+    return sg and sg.Enabled == true
+end
+
+
 Tabs.Extra:AddToggle("AutoBedSpawn", {
     Title = "Auto Bed Spawn",
     Default = false,
@@ -2786,11 +2805,23 @@ Tabs.Extra:AddToggle("AutoBedSpawn", {
         autoBedSpawnEnabled = v
         if v then
             autoBedSpawnThread = task.spawn(function()
+                local lastTry = 0
                 while autoBedSpawnEnabled do
-                    if not LocalPlayer:GetAttribute("hasSpawned") and bedCooldown() <= 0 then
-                        spawnAtBed()
+                    if isOnSpawnScreen() then
+                        LocalPlayer:SetAttribute("hasSpawned", false)
                     end
-                    task.wait(1)
+
+                    local now = os.clock()
+                    if (now - lastTry) >= 1 then
+                        lastTry = now
+                        local shouldTry = (not LocalPlayer:GetAttribute("hasSpawned")) and (bedCooldown() <= 0)
+
+                        if shouldTry then
+                            pcall(spawnAtBed)
+                        end
+                    end
+
+                    task.wait(0.2)
                 end
             end)
         else
@@ -2801,6 +2832,7 @@ Tabs.Extra:AddToggle("AutoBedSpawn", {
         end
     end
 })
+
 
 Tabs.Extra:AddToggle("PickupItems", {
     Title = "Pickup everything",
