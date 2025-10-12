@@ -778,6 +778,32 @@ local function sendEntitiesBuffer(entities)
     Packets.SwingTool.send(finalBuffer)
 end
 
+local function campfireRefuelLoop()
+    while campEnabled do
+        local list = GetDeployable("Campfire", 30, true) or {}
+        for _, rec in ipairs(list) do
+            local d = rec.deployable
+            local board = d:FindFirstChild("Board")
+            local bb = board and board:FindFirstChild("Billboard")
+            local back = bb and bb:FindFirstChild("Backdrop")
+            local tl = back and back:FindFirstChild("TextLabel")
+            local secondsLeft = tonumber(tl and tl.Text) or 999
+
+            if secondsLeft <= 10 then
+                local fuel = GetFuel()
+                if fuel then
+                    Packets.InteractStructure.send({
+                        entityID = d:GetAttribute("EntityID"),
+                        itemID = fuel
+                    })
+                    task.wait(0.05)
+                end
+            end
+        end
+        task.wait(0.25)
+    end
+end
+
 local function IcenodeFarm()
     while task.wait(0.1) do
         local chunks = GetIceChunks()
@@ -839,20 +865,6 @@ local function IcenodeFarm()
                     until not chest or tween.PlaybackState == Enum.PlaybackState.Completed
                 end
                 Root.Anchored = true
-            end
-
-            if campEnabled then
-                for x, v in next, GetDeployable("Campfire", 25, true) do
-                    if v.deployable.Board.Billboard.Backdrop.TextLabel.Text <= "10" then
-                        local itemID = GetFuel()
-                        if itemID then
-                            Packets.InteractStructure.send({
-                                entityID = v.deployable:GetAttribute("EntityID"),
-                                itemID = itemID
-                            })
-                        end
-                    end
-                end
             end
             
             if pickUpGoldEnabled then
@@ -928,19 +940,7 @@ local function CavenodeFarm()
                     until not chest or tween.PlaybackState == Enum.PlaybackState.Completed
                 end
                 Root.Anchored = true
-            end
-
-            if campEnabled then
-                for x, v in next, GetDeployable("Campfire", 25, true) do
-                    if v.deployable.Board.Billboard.Backdrop.TextLabel.Text <= "10" then
-                        local itemID = GetFuel()
-                        if itemID then
-                            Packets.InteractStructure.send({entityID = v.deployable:GetAttribute("EntityID"), itemID = itemID})
-                        end
-                    end
-                end
-            end
-            
+            end      
 
             if pressEnabled then
                 local deployable = GetDeployable("Coin Press", 25)
@@ -974,16 +974,6 @@ local function antFarm()
         end
 
         if chest then
-            if campEnabled then
-                for _, v in next, GetDeployable("Campfire", 25, true) do
-                    if v.deployable.Board.Billboard.Backdrop.TextLabel.Text <= "10" then
-                        local itemID = GetFuel()
-                        if itemID then
-                            Packets.InteractStructure.send({ entityID = v.deployable:GetAttribute("EntityID"), itemID = itemID })
-                        end
-                    end
-                end
-            end
 
             if pressEnabled then
                 if chest.Contents:FindFirstChild("Gold") then
@@ -2227,11 +2217,16 @@ Tabs.GoldEXP:AddToggle("CoinPress", {
 Tabs.GoldEXP:AddToggle("FuelCampfires", {
     Title = "Fuel Campfires",
     Default = false,
-    Callback = function(value)
-        campEnabled = value
+    Callback = function(v)
+        campEnabled = v
+        if v then
+            stopAll({"campfireRefuel"})
+            Threads.campfireRefuel = task.spawn(campfireRefuelLoop)
+        else
+            stopAll({"campfireRefuel"})
+        end
     end
 })
-
 Tabs.GoldEXP:AddToggle("PickupCoins", {
     Title = "Pickup Coins",
     Default = false,
