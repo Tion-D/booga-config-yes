@@ -710,17 +710,24 @@ local function pickupAllItem()
     end
 end
 
+local CHEST_LOOKUP_DT = 2.0
+
 local function pickupGolds()
+    local lastChestLookup = 0
     while pickupGold do
-        if chest and chest.Parent then
-            if pickUpGoldEnabled then
-                for _, v in next, chest.Contents:GetChildren() do
-                    if v.Name == "Gold" then
-                        local id = v:GetAttribute("EntityID")
-                        if id then
-                            Packets.Pickup.send(id)
-                            task.wait(0.05)
-                        end
+        local now = os.clock()
+        if (not chest or not chest.Parent or (now - lastChestLookup) >= CHEST_LOOKUP_DT) then
+            chest = GetDeployable("Chest", 100, false)
+            lastChestLookup = now
+        end
+
+        if pickUpGoldEnabled and chest and chest.Parent then
+            for _, v in next, chest.Contents:GetChildren() do
+                if v.Name == "Gold" then
+                    local id = v:GetAttribute("EntityID")
+                    if id then
+                        Packets.Pickup.send(id)
+                        task.wait(0.05)
                     end
                 end
             end
@@ -732,13 +739,13 @@ local function pickupGolds()
                 if item.Name == "Gold" then
                     local t0 = os.clock()
                     local id = item:GetAttribute("EntityID")
-                    while item.Parent == workspace.Items and not id and os.clock() - t0 < 3 do
+                    while item.Parent == Workspace.Items and not id and (os.clock() - t0) < 3 do
                         task.wait()
                         id = item:GetAttribute("EntityID")
                     end
                     if id then
                         for i = 1, 8 do
-                            if not item or item.Parent ~= workspace.Items then break end
+                            if not item or item.Parent ~= Workspace.Items then break end
                             Packets.Pickup.send(id)
                             task.wait(0.12)
                         end
@@ -752,7 +759,14 @@ local function pickupGolds()
 end
 
 local function pickupRawGolds()
+    local lastChestLookup = 0
     while pickupRawGold do
+        local now = os.clock()
+        if (not chest or not chest.Parent or (now - lastChestLookup) >= CHEST_LOOKUP_DT) then
+            chest = GetDeployable("Chest", 100, false)
+            lastChestLookup = now
+        end
+
         if chest and chest.Parent then
             for _, v in next, chest.Contents:GetChildren() do
                 if v.Name == "Raw Gold" or v.Name == "Gold" then
@@ -763,7 +777,6 @@ local function pickupRawGolds()
                     end
                 end
             end
-
         end
 
         local ItemsFolder = Workspace:FindFirstChild("Items")
@@ -772,13 +785,13 @@ local function pickupRawGolds()
                 if item.Name == "Raw Gold" then
                     local t0 = os.clock()
                     local id = item:GetAttribute("EntityID")
-                    while item.Parent == workspace.Items and not id and os.clock() - t0 < 3 do
+                    while item.Parent == Workspace.Items and not id and (os.clock() - t0) < 3 do
                         task.wait()
                         id = item:GetAttribute("EntityID")
                     end
                     if id then
                         for i = 1, 8 do
-                            if not item or item.Parent ~= workspace.Items then break end
+                            if not item or item.Parent ~= Workspace.Items then break end
                             Packets.Pickup.send(id)
                             task.wait(0.12)
                         end
@@ -790,7 +803,6 @@ local function pickupRawGolds()
         task.wait(0.25)
     end
 end
-
 
 local function sendEntitiesBuffer(entities)
     local bufferSize = #entities * 4 + 2
@@ -2799,7 +2811,7 @@ Tabs.Extra:AddToggle("PressCoins", {
 })
 
 Tabs.Extra:AddToggle("PickupGold", {
-    Title = "Pickup Gold (from floor)",
+    Title = "Pickup Gold",
     Default = false,
     Callback = function(value)
         pickupGold = value
@@ -2812,7 +2824,7 @@ Tabs.Extra:AddToggle("PickupGold", {
 })
 
 Tabs.Extra:AddToggle("PickupRawGold", {
-    Title = "Pickup Raw Gold (from floor)",
+    Title = "Pickup Raw Gold",
     Default = false,
     Callback = function(value)
         pickupRawGold = value
