@@ -1,14 +1,14 @@
 setthreadidentity(5)
 local RS = game:GetService("ReplicatedStorage")
--- local ClientAnimalReady = RS:WaitForChild("ClientAnimalReady")
--- local old; old = hookfunction(ClientAnimalReady.FireServer, function(...)
---     local remote = select(1, ...) 
---     if not checkcaller() and remote == ClientAnimalReady then
---         warn("Blocked")
---         return nil
---     end
---     return old(...)
--- end)
+local ClientAnimalReady = RS:WaitForChild("ClientAnimalReady")
+local old; old = hookfunction(ClientAnimalReady.FireServer, function(...)
+    local remote = select(1, ...) 
+    if not checkcaller() and remote == ClientAnimalReady then
+        warn("Blocked")
+        return nil
+    end
+    return old(...)
+end)
 local PathfindingService = game:GetService("PathfindingService")
 local TweenService = game:GetService("TweenService")
 local Workspace = game:GetService("Workspace")
@@ -2971,22 +2971,22 @@ Tabs.Extra:AddToggle("AutoDropSelected", {
     end
 })
 
-Tabs.Extra:AddToggle("TPDropToChestToggle", {
-    Title = "TP Dropped Item to Chest",
-    Default = false,
-    Callback = function(v)
-        TPDropToChest = v
+-- Tabs.Extra:AddToggle("TPDropToChestToggle", {
+--     Title = "TP Dropped Item to Chest",
+--     Default = false,
+--     Callback = function(v)
+--         TPDropToChest = v
 
-        if v then
-            chest = chest or GetDeployable("Chest", 100, false)
-            if not chest then
-                TPDropToChest = false
-                Notify("Dropper", "No chest found within 100 studs.")
-                return
-            end
-        end
-    end
-})
+--         if v then
+--             chest = chest or GetDeployable("Chest", 100, false)
+--             if not chest then
+--                 TPDropToChest = false
+--                 Notify("Dropper", "No chest found within 100 studs.")
+--                 return
+--             end
+--         end
+--     end
+-- })
 
 Tabs.Extra:AddSection("Make Farm (turn off cam lock, made by Zam)")
 
