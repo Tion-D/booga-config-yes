@@ -1354,6 +1354,7 @@ local function startWalking()
     end
 
 end
+
 local function startTweening()
     if not Humanoid or not Humanoid.Parent then
         Notify("Humanoid not found, reinitializing.")
@@ -1374,8 +1375,8 @@ local function startTweening()
 
     local RUBBER_DEV_STUDS = 6
     local SETTLE_SECS = 0.40
-    local MAX_RB_PER_NODE     = 3
-    local JUMP_SAMPLE_SECS    = 0.20
+    local MAX_RB_PER_NODE = 3
+    local JUMP_SAMPLE_SECS = 0.20
 
     local function nearestIndex(fromPos)
         local bestI, bestD = 1, math.huge
@@ -1390,7 +1391,7 @@ local function startTweening()
     end
 
     local curIndex = nearestIndex(Root.Position)
-    local fails = table.create(#positionList, 0)
+    local fails   = table.create(#positionList, 0)
     local rbCount = table.create(#positionList, 0)
 
     while tweeningEnabled do
@@ -1527,8 +1528,6 @@ local function startTweening()
     if tweenConn then tweenConn:Disconnect(); tweenConn = nil end
     if tween then tween:Cancel(); tween = nil end
 end
-
-
 
 local function autoJump()
     while autoJumpEnabled do
@@ -2033,7 +2032,7 @@ local SaveManager = loadstring(game:HttpGet("https://raw.githubusercontent.com/d
 local InterfaceManager = loadstring(game:HttpGet("https://raw.githubusercontent.com/dawid-scripts/Fluent/master/Addons/InterfaceManager.lua"))()
 
 local Window = Fluent:CreateWindow({
-    Title = "MidasHub",
+    Title = "JordanHub",
     SubTitle = "discord.gg/FDAhrbbT7F",
     TabWidth = 160,
     Size = UDim2.fromOffset(580, 460),
@@ -2052,7 +2051,7 @@ local Tabs = {
 
 if (require == nil or hookmetamethod == nil or request == nil or Packets == nil or ItemData == nil or ItemIDS == nil or GameUtil == nil) then
     Fluent:Notify({
-        Title = "MidasHub",
+        Title = "JordanHub",
         Content = "Your executor is not supported lmao",
         Duration = 8
     })
@@ -2689,6 +2688,8 @@ Tabs.Extra:AddButton({
         end
     end
 })
+
+Tabs.Extra:AddSection("Extras")
 
 
 Tabs.Extra:AddToggle("AutoRebirth", {
