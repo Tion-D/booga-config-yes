@@ -1358,8 +1358,8 @@ local function startTweening()
     if not Humanoid or not Humanoid.Parent then
         Notify("Humanoid not found, reinitializing.")
         Character = Players.LocalPlayer.Character or Players.LocalPlayer.CharacterAdded:Wait()
-        Humanoid  = Character:WaitForChild("Humanoid")
-        Root      = Character:WaitForChild("HumanoidRootPart")
+        Humanoid = Character:WaitForChild("Humanoid")
+        Root = Character:WaitForChild("HumanoidRootPart")
     end
     if #positionList == 0 then
         Notify("Unable to start Tweening. No positions available.")
@@ -1374,103 +1374,15 @@ local function startTweening()
 
     local RUBBER_DEV_STUDS = 6
     local SETTLE_SECS = 0.40
-    local MAX_RB_PER_NODE = 3
-    local JUMP_SAMPLE_SECS = 0.20
-
-    local LOOKAHEAD_MAX = 14 
-    local MAX_HOP_STUDS = 180 
-    local MAX_ASCENT_STUDS = 20 
-    local CHEST_H = 6
-    local FEET_H = 3
-    local LOS_SAMPLE_COUNT = 1
-
-    local PlayersService = game:GetService("Players")
-    local Workspace = game:GetService("Workspace")
-
-    local function v3(p) return Vector3.new(p.X,p.Y,p.Z) end
-
-    local function rayParams()
-        local rp = RaycastParams.new()
-        rp.FilterType = Enum.RaycastFilterType.Exclude
-        rp.FilterDescendantsInstances = {Character}
-        rp.IgnoreWater = false
-        return rp
-    end
-
-    local function isReachableSegment(a, b)
-        local dir = (b - a)
-        local dist = dir.Magnitude
-        if dist < 1 then return true end
-        if dist > MAX_HOP_STUDS then return false end
-        local n = dir.Unit
-
-        local rp = rayParams()
-
-        local aFeet = a + Vector3.new(0, FEET_H, 0)
-        local res1 = Workspace:Raycast(aFeet, n * dist, rp)
-        if res1 and (res1.Position - aFeet).Magnitude + 0.1 < dist then
-            return false
-        end
-
-        local aChest = a + Vector3.new(0, CHEST_H, 0)
-        local res2 = Workspace:Raycast(aChest, n * dist, rp)
-        if res2 and (res2.Position - aChest).Magnitude + 0.1 < dist then
-            return false
-        end
-
-        local ascent = math.abs(b.Y - a.Y)
-        if ascent > MAX_ASCENT_STUDS then
-            return false
-        end
-
-        return true
-    end
-
-    local function clampIndex(i)
-        if i < 1 then return 1 end
-        if i > #positionList then return #positionList end
-        return i
-    end
-
-    local function nextForwardIndex(curIndex, fromPos)
-        local tryI = clampIndex(curIndex + 1)
-        local pTry = positionList[tryI]
-        if pTry and pTry.X then
-            local tgt = v3(pTry)
-            if isReachableSegment(fromPos, tgt) then
-                return tryI
-            end
-        end
-
-        for offs = 2, LOOKAHEAD_MAX do
-            local i = clampIndex(curIndex + offs)
-            local p = positionList[i]
-            if p and p.X then
-                local tgt = v3(p)
-                if isReachableSegment(fromPos, tgt) then
-                    return i
-                end
-            end
-        end
-
-        local bestI, bestD = nil, math.huge
-        for offs = 1, LOOKAHEAD_MAX do
-            local i = clampIndex(curIndex + offs)
-            local p = positionList[i]
-            if p and p.X then
-                local d = (fromPos - v3(p)).Magnitude
-                if d < bestD then bestD, bestI = d, i end
-            end
-        end
-        return bestI or tryI
-    end
+    local MAX_RB_PER_NODE     = 3
+    local JUMP_SAMPLE_SECS    = 0.20
 
     local function nearestIndex(fromPos)
         local bestI, bestD = 1, math.huge
         for j = 1, #positionList do
             local p = positionList[j]
             if p and p.X and p.Y and p.Z then
-                local d = (fromPos - v3(p)).Magnitude
+                local d = (fromPos - Vector3.new(p.X, p.Y, p.Z)).Magnitude
                 if d < bestD then bestI, bestD = j, d end
             end
         end
@@ -1478,34 +1390,28 @@ local function startTweening()
     end
 
     local curIndex = nearestIndex(Root.Position)
-    local fails   = table.create(#positionList, 0)
+    local fails = table.create(#positionList, 0)
     local rbCount = table.create(#positionList, 0)
 
     while tweeningEnabled do
-        if curIndex < 1 or curIndex > #positionList then curIndex = 1 end
+        if curIndex < 1 or curIndex > #positionList then
+            curIndex = 1
+        end
 
         local pos = positionList[curIndex]
         if not (pos and pos.X and pos.Y and pos.Z) then
             Notify(("Invalid pos @ %d, skipping."):format(curIndex))
-            curIndex = clampIndex(curIndex + 1)
+            curIndex = (curIndex % #positionList) + 1
             task.wait(0.05)
             continue
         end
 
-        local targetPos = v3(pos)
+        local targetPos = Vector3.new(pos.X, pos.Y, pos.Z)
         local startPos  = Root.Position
-        local dist      = (startPos - targetPos).Magnitude
-        local speed     = math.max(1, Humanoid.WalkSpeed or 16)
+        local dist = (startPos - targetPos).Magnitude
+        local speed = walkSpeed
         local MAX_TRAVEL_SECS = math.max(15, dist / (speed * 0.6))
-        local duration  = math.max(0.05, dist / speed)
-
-        if not isReachableSegment(startPos, targetPos) then
-            local newIdx = nextForwardIndex(curIndex, startPos)
-            if newIdx ~= curIndex then
-                curIndex = newIdx
-                continue
-            end
-        end
+        local duration = math.max(0.05, dist / speed)
 
         if tweenConn then tweenConn:Disconnect(); tweenConn = nil end
         if tween then tween:Cancel(); tween = nil end
@@ -1531,8 +1437,9 @@ local function startTweening()
         while tweeningEnabled and not completed do
             task.wait(JUMP_SAMPLE_SECS)
 
-            local now   = tick()
-            local alpha = math.clamp((now - t0) / duration, 0, 1)
+            local now = tick()
+            local elapsed = now - t0
+            local alpha = math.clamp(elapsed / duration, 0, 1)
 
             local curPos  = Root.Position
             local curDist = (curPos - targetPos).Magnitude
@@ -1570,14 +1477,13 @@ local function startTweening()
 
                 task.wait(SETTLE_SECS)
                 local serverPos = Root.Position
-
-                local newIndex  = nextForwardIndex(curIndex, serverPos)
+                local newIndex  = nearestIndex(serverPos)
 
                 rbCount[curIndex] = (rbCount[curIndex] or 0) + 1
                 if rbCount[curIndex] >= MAX_RB_PER_NODE then
                     Notify(("Rubberband @ %d x%d -> skip node."):format(curIndex, rbCount[curIndex]))
                     rbCount[curIndex] = 0
-                    curIndex = clampIndex(curIndex + 1)
+                    curIndex = (curIndex % #positionList) + 1
                 else
                     curIndex = newIndex
                 end
@@ -1590,7 +1496,7 @@ local function startTweening()
 
             lastPoll = now
             lastDist = curDist
-            lastPos  = curPos
+            lastPos = curPos
         end
 
         if tweenConn then tweenConn:Disconnect(); tweenConn = nil end
@@ -1606,7 +1512,7 @@ local function startTweening()
                 Notify(("Skipping idx %d after repeated fails."):format(curIndex))
                 fails[curIndex] = 0
             end
-            curIndex = nextForwardIndex(curIndex, Root.Position)
+            curIndex = (curIndex % #positionList) + 1
             Root.Anchored = false
             task.wait(0.15)
             continue
@@ -1614,13 +1520,14 @@ local function startTweening()
 
         fails[curIndex] = 0
         rbCount[curIndex] = 0
-        curIndex = clampIndex(curIndex + 1)
+        curIndex = (curIndex % #positionList) + 1
         task.wait(0.1)
     end
 
     if tweenConn then tweenConn:Disconnect(); tweenConn = nil end
     if tween then tween:Cancel(); tween = nil end
 end
+
 
 
 local function autoJump()
