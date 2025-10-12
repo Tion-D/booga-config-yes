@@ -1,16 +1,14 @@
 setthreadidentity(5)
 local RS = game:GetService("ReplicatedStorage")
--- local ClientAnimalReady = RS:WaitForChild("ClientAnimalReady")
--- local oldNamecall
--- oldNamecall = hookmetamethod(game, "__namecall", function(self, ...)
---     local method = getnamecallmethod and getnamecallmethod() or ""
---     if not checkcaller() and method == "FireServer" and self == ClientAnimalReady then
---         warn("Blocked ClientAnimalReady:FireServer")
---         return
---     end
---     return oldNamecall(self, ...)
--- end)
-
+local ClientAnimalReady = RS:WaitForChild("ClientAnimalReady")
+local old; old = hookfunction(ClientAnimalReady.FireServer, function(...)
+    local remote = select(1, ...) 
+    if not checkcaller() and remote == ClientAnimalReady then
+        warn("Blocked")
+        return nil
+    end
+    return old(...)
+end)
 local PathfindingService = game:GetService("PathfindingService")
 local TweenService = game:GetService("TweenService")
 local Workspace = game:GetService("Workspace")
