@@ -108,7 +108,6 @@ local originalWalkSpeed
 local maxSlopeEnabled = false
 local autoJumpEnabled = false
 local fishingEnabled = false
-local TPGoldToChest = false
 local coinPressTask = false
 local pickupCoinTask = false
 local pickupGoldTask = false
@@ -2628,21 +2627,6 @@ Tabs.PositionsTab:AddToggle("AutoJumpToggle", {
     end
 })
 
-Tabs.PositionsTab:AddToggle("TPGoldToChest", {
-    Title = "TP Gold to chest (stand near a chest and turn it on)",
-    Default = false,
-    Callback = function(value)
-        TPGoldToChest = value
-        if value then
-            chest = GetDeployable("Chest", 100, false)
-            if not chest then
-                Notify("No chest found within 100 studs.")
-                TPGoldToChest = false
-            end
-        end
-    end
-})
-
 Tabs.PositionsTab:AddSection("Settings")
 
 Tabs.PositionsTab:AddInput("FileNameInput", {
@@ -2971,22 +2955,36 @@ Tabs.Extra:AddToggle("AutoDropSelected", {
     end
 })
 
--- Tabs.Extra:AddToggle("TPDropToChestToggle", {
---     Title = "TP Dropped Item to Chest",
---     Default = false,
---     Callback = function(v)
---         TPDropToChest = v
+Tabs.Extra:AddToggle("TPDropToChestToggle", {
+    Title = "TP Dropped Item to Chest",
+    Default = false,
+    Callback = function(v)
+        TPDropToChest = v
 
---         if v then
---             chest = chest or GetDeployable("Chest", 100, false)
---             if not chest then
---                 TPDropToChest = false
---                 Notify("Dropper", "No chest found within 100 studs.")
---                 return
---             end
---         end
---     end
--- })
+        if not v then
+            return
+        end
+
+        if type(GetDeployable) ~= "function" then
+            TPDropToChest = false
+            warn("[TPDropToChest] GetDeployable is not available yet.")
+            if Notify then Notify("Dropper", "GetDeployable isn't ready yet.") end
+            return
+        end
+
+        chest = chest or GetDeployable("Chest", 100, false)
+        if not chest then
+            TPDropToChest = false
+            if Notify then
+                Notify("Dropper", "No chest found within 100 studs.")
+            else
+                warn("[TPDropToChest] No chest found within 100 studs.")
+            end
+            return
+        end
+    end
+})
+
 
 Tabs.Extra:AddSection("Make Farm (turn off cam lock, made by Zam)")
 
@@ -3049,7 +3047,7 @@ SaveManager:LoadAutoloadConfig()
 
 if Conns.itemsChildAdded then Conns.itemsChildAdded:Disconnect() end
 Conns.itemsChildAdded = Workspace.Items.ChildAdded:Connect(function(item)
-    if (icenodeRun or cavenodeRun or antRun or crewRun or TPGoldToChest) and item.Name == "Raw Gold" and chest then
+    if (icenodeRun or cavenodeRun or antRun or crewRun) and item.Name == "Raw Gold" and chest then
         task.spawn(function()
             while item and item.Parent == workspace.Items do
                 local id = item:GetAttribute("EntityID")
