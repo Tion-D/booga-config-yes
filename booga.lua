@@ -164,13 +164,11 @@ local function stopAll(keys)
     end
 end
 
-
 local defaultConfigUrl = "https://raw.githubusercontent.com/Tion-D/booga-config-yes/refs/heads/main/MidasConfig.txt"
 local defaultConfigFile = "MidasConfig.txt"
-if not isfile(defaultConfigFile) then
-    local configContent = game:HttpGet(defaultConfigUrl)
-    writefile(defaultConfigFile, configContent)
-end
+
+local configContent = game:HttpGet(defaultConfigUrl)
+writefile(defaultConfigFile, configContent)
 
 local function make_8x8()
     if not Character or not Character.Parent then
