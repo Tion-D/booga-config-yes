@@ -1338,9 +1338,9 @@ end
 local function startTweening()
     if not Humanoid or not Humanoid.Parent then
         Notify("Humanoid not found, reinitializing.")
-        Character= Players.LocalPlayer.Character or Players.LocalPlayer.CharacterAdded:Wait()
+        Character = Players.LocalPlayer.Character or Players.LocalPlayer.CharacterAdded:Wait()
         Humanoid = Character:WaitForChild("Humanoid")
-        Root = Character:WaitForChild("HumanoidRootPart")
+        Root     = Character:WaitForChild("HumanoidRootPart")
     end
     if #positionList == 0 then
         Notify("Unable to start Tweening. No positions available.")
@@ -1353,8 +1353,14 @@ local function startTweening()
     local TELEPORT_BACK_DINC = 8
     local TELEPORT_STEP_JUMP = 15
 
+    local RUBBER_DEV_STUDS    = 6 
+    local SNAP_BACK_STUDS = 8
+    local JUMP_SAMPLE_SECS = 0.20
+    local SETTLE_SECS = 0.40
+    local MAX_RB_PER_NODE = 3
+
     local function nearestIndex(fromPos)
-        local bestI, bestD = nil, math.huge
+        local bestI, bestD = 1, math.huge
         for j = 1, #positionList do
             local p = positionList[j]
             if p and p.X and p.Y and p.Z then
@@ -1362,11 +1368,12 @@ local function startTweening()
                 if d < bestD then bestI, bestD = j, d end
             end
         end
-        return bestI or 1
+        return bestI
     end
 
     local curIndex = nearestIndex(Root.Position)
-    local fails = table.create(#positionList, 0)
+    local fails    = table.create(#positionList, 0)
+    local rbCount  = table.create(#positionList, 0)
 
     while tweeningEnabled do
         if curIndex < 1 or curIndex > #positionList then
@@ -1375,27 +1382,32 @@ local function startTweening()
 
         local pos = positionList[curIndex]
         if not (pos and pos.X and pos.Y and pos.Z) then
-            Notify(("Invalid position at index %d, skipping."):format(curIndex))
+            Notify(("Invalid pos @ %d, skipping."):format(curIndex))
             curIndex = (curIndex % #positionList) + 1
             task.wait(0.05)
             continue
         end
 
         local targetPos = Vector3.new(pos.X, pos.Y, pos.Z)
-
-        local dist = (Root.Position - targetPos).Magnitude
-        local speed = math.max(1, Humanoid.WalkSpeed or 16)
+        local startPos  = Root.Position
+        local dist      = (startPos - targetPos).Magnitude
+        local speed     = math.max(1, Humanoid.WalkSpeed or 16)
         local MAX_TRAVEL_SECS = math.max(15, dist / (speed * 0.6))
-
-        local duration = math.max(0.05, dist / speed)
-        local ti = TweenInfo.new(duration, Enum.EasingStyle.Linear)
+        local duration  = math.max(0.05, dist / speed)
 
         if tweenConn then tweenConn:Disconnect(); tweenConn = nil end
-        if tween     then tween:Cancel();        tween = nil end
+        if tween then tween:Cancel(); tween = nil end
 
+        local ti = TweenInfo.new(duration, Enum.EasingStyle.Linear)
         tween = TweenService:Create(Root, ti, { CFrame = CFrame.new(targetPos) })
 
-        local completed, restartToNext = false, false
+        local completed, restartToNext, rubberbanded = false, false, false
+        local t0 = tick()
+        local lastPoll = t0
+        local lastPos  = startPos
+        local lastDist = (lastPos - targetPos).Magnitude
+        local lastCheckTime = t0
+
         tweenConn = tween.Completed:Connect(function()
             completed = true
             if tweenConn then tweenConn:Disconnect(); tweenConn = nil end
@@ -1403,12 +1415,12 @@ local function startTweening()
 
         tween:Play()
 
-        local t0, lastPoll = tick(), tick()
-        local lastPos  = Root.Position
-        local lastDist = (lastPos - targetPos).Magnitude
-
         while tweeningEnabled and not completed do
-            task.wait(0.2)
+            task.wait(JUMP_SAMPLE_SECS)
+
+            local now = tick()
+            local elapsed = now - t0
+            local alpha = math.clamp(elapsed / duration, 0, 1)
 
             local curPos  = Root.Position
             local curDist = (curPos - targetPos).Magnitude
@@ -1420,19 +1432,52 @@ local function startTweening()
 
             local stepJump = (curPos - lastPos).Magnitude
             if (curDist - lastDist) >= TELEPORT_BACK_DINC or stepJump >= TELEPORT_STEP_JUMP then
+                rubberbanded = true
+            end
+
+            do
+                local expectPos = startPos:Lerp(targetPos, alpha)
+                local dev = (curPos - expectPos).Magnitude
+                if dev >= RUBBER_DEV_STUDS then
+                    local vmag = Root.AssemblyLinearVelocity.Magnitude
+                    if vmag < 1 or dev > (RUBBER_DEV_STUDS * 1.5) then
+                        rubberbanded = true
+                    end
+                end
+            end
+
+            if (now - t0) > MAX_TRAVEL_SECS
+               or ((now - lastPoll) > NO_PROGRESS_SECS and (lastDist - curDist) < MIN_IMPROVE_STUDS) then
                 restartToNext = true
                 break
             end
 
-            if (tick() - t0) > MAX_TRAVEL_SECS
-            or ((tick() - lastPoll) > NO_PROGRESS_SECS and (lastDist - curDist) < MIN_IMPROVE_STUDS) then
-                restartToNext = true
-                break
+            if rubberbanded then
+                if tweenConn then tweenConn:Disconnect(); tweenConn = nil end
+                if tween then tween:Cancel(); tween = nil end
+
+                task.wait(SETTLE_SECS)
+                local serverPos = Root.Position
+                local newIndex  = nearestIndex(serverPos)
+
+                rbCount[curIndex] = (rbCount[curIndex] or 0) + 1
+                if rbCount[curIndex] >= MAX_RB_PER_NODE then
+                    Notify(("Rubberband @ %d x%d -> skip node."):format(curIndex, rbCount[curIndex]))
+                    rbCount[curIndex] = 0
+                    curIndex = (curIndex % #positionList) + 1
+                else
+                    curIndex = newIndex
+                end
+
+                Root.Anchored = false
+                task.wait(0.1)
+                goto continue_outer
             end
 
-            lastPoll = tick()
+            lastPoll = now
             lastDist = curDist
             lastPos  = curPos
+            lastCheckTime = now
         end
 
         if tweenConn then tweenConn:Disconnect(); tweenConn = nil end
@@ -1442,25 +1487,25 @@ local function startTweening()
             fails[curIndex] = (fails[curIndex] or 0) + 1
             if fails[curIndex] >= 3 then
                 Notify(("Skipping idx %d after repeated fails."):format(curIndex))
-                curIndex = (curIndex % #positionList) + 1
                 fails[curIndex] = 0
-            else
-                curIndex = (curIndex % #positionList) + 1
             end
+            curIndex = (curIndex % #positionList) + 1
             Root.Anchored = false
             task.wait(0.15)
-            continue
+            goto continue_outer
         end
 
         fails[curIndex] = 0
+        rbCount[curIndex] = 0
         curIndex = (curIndex % #positionList) + 1
         task.wait(0.1)
+
+        ::continue_outer::
     end
 
     if tweenConn then tweenConn:Disconnect(); tweenConn = nil end
-    if tween     then tween:Cancel();        tween = nil end
+    if tween then tween:Cancel(); tween = nil end
 end
-
 
 local function autoJump()
     while autoJumpEnabled do
