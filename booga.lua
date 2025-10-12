@@ -1340,7 +1340,7 @@ local function startTweening()
         Notify("Humanoid not found, reinitializing.")
         Character = Players.LocalPlayer.Character or Players.LocalPlayer.CharacterAdded:Wait()
         Humanoid = Character:WaitForChild("Humanoid")
-        Root     = Character:WaitForChild("HumanoidRootPart")
+        Root = Character:WaitForChild("HumanoidRootPart")
     end
     if #positionList == 0 then
         Notify("Unable to start Tweening. No positions available.")
@@ -1372,8 +1372,8 @@ local function startTweening()
     end
 
     local curIndex = nearestIndex(Root.Position)
-    local fails    = table.create(#positionList, 0)
-    local rbCount  = table.create(#positionList, 0)
+    local fails = table.create(#positionList, 0)
+    local rbCount = table.create(#positionList, 0)
 
     while tweeningEnabled do
         if curIndex < 1 or curIndex > #positionList then
@@ -1389,9 +1389,9 @@ local function startTweening()
         end
 
         local targetPos = Vector3.new(pos.X, pos.Y, pos.Z)
-        local startPos  = Root.Position
-        local dist      = (startPos - targetPos).Magnitude
-        local speed     = math.max(1, Humanoid.WalkSpeed or 16)
+        local startPos = Root.Position
+        local dist = (startPos - targetPos).Magnitude
+        local speed = walkSpeed
         local MAX_TRAVEL_SECS = math.max(15, dist / (speed * 0.6))
         local duration  = math.max(0.05, dist / speed)
 
@@ -2566,8 +2566,8 @@ Tabs.PositionsTab:AddButton({
     end
 })
 
-Tabs.PositionsTab:AddSlider("TweenSpeedSlider", {
-    Title = "Tween Speed",
+Tabs.PositionsTab:AddSlider("SetSpeedSlider", {
+    Title = "Set Speed",
     Min = 1,
     Max = 24,
     Default = walkSpeed,
