@@ -1419,7 +1419,7 @@ local function startTweening()
         local dist = (startPos - targetPos).Magnitude
         local speed = walkSpeed
         local MAX_TRAVEL_SECS = math.max(15, dist / (speed * 0.6))
-        local duration = math.max(0.05, dist / speed)
+        local duration = math.max(0.02, dist / speed)
 
         if tweenConn then tweenConn:Disconnect(); tweenConn = nil end
         if tween then tween:Cancel(); tween = nil end
