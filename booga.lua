@@ -655,27 +655,26 @@ end
 local function pressCoins()
     while CoinpressEnabled do
         local deployable = GetDeployable("Coin Press", 25)
-        local entityID = deployable and deployable:GetAttribute("EntityID")
-        if not entityID then task.wait(0.3) continue end
+        if not deployable then task.wait(0.1) continue end
 
-        local goldAmt = tonumber((GetQuantity("Gold") or 0)) or 0
-        if goldAmt == 0 then task.wait(0.3) continue end
+        local entityID = deployable:GetAttribute("EntityID")
+        if not entityID then task.wait(0.1) continue end
 
-        local before = goldAmt
+        local goldAmt = tonumber(GetQuantity("Gold") or 0)
+        if goldAmt == 0 then task.wait(0.1) continue end
+
         Packets.InteractStructure.send({ entityID = entityID, itemID = ItemIDS.Gold })
-        task.wait(0.05)
+        task.wait(0.03)
 
         local t0 = os.clock()
+        local before = goldAmt
         repeat
-            task.wait(0.1)
-            goldAmt = tonumber((GetQuantity("Gold") or 0)) or 0
-        until goldAmt < before or (os.clock() - t0) > 1.2
-
-        if goldAmt >= before then
-            task.wait(0.5)
-        end
+            task.wait(0.005)
+            goldAmt = tonumber(GetQuantity("Gold") or 0)
+        until goldAmt < before or (os.clock() - t0) > 0.5
     end
 end
+
 
 local function pickupCoins()
     while pickUpPressedGold do
@@ -687,7 +686,7 @@ local function pickupCoins()
                 end
             end
         end
-        task.wait(0.5)
+        task.wait()
     end
 end
 
@@ -1398,7 +1397,7 @@ local function startTweening()
     end
 
     local curIndex = nearestIndex(Root.Position)
-    local fails   = table.create(#positionList, 0)
+    local fails = table.create(#positionList, 0)
     local rbCount = table.create(#positionList, 0)
 
     while tweeningEnabled do
