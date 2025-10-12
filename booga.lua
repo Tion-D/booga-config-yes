@@ -22,7 +22,6 @@ local LocalPlayerMouse = Players.LocalPlayer:GetMouse()
 local Events = RS:WaitForChild("Events")
 local SpawnFirst = Events:WaitForChild("SpawnFirst")
 
-
 local GameUtil = require(RS.Modules.GameUtil)
 local ItemData = require(RS.Modules.ItemData)
 local ItemIDS = require(RS.Modules.ItemIDS)
@@ -1349,23 +1348,22 @@ local function startTweening()
     if not Humanoid or not Humanoid.Parent then
         Notify("Humanoid not found, reinitializing.")
         Character = Players.LocalPlayer.Character or Players.LocalPlayer.CharacterAdded:Wait()
-        Humanoid  = Character:WaitForChild("Humanoid")
-        Root      = Character:WaitForChild("HumanoidRootPart")
+        Humanoid = Character:WaitForChild("Humanoid")
+        Root = Character:WaitForChild("HumanoidRootPart")
     end
     if #positionList == 0 then
         Notify("Unable to start Tweening. No positions available.")
         return
     end
 
-    local REACH_RADIUS        = 4
-    local MIN_IMPROVE_STUDS   = 0.75
-    local NO_PROGRESS_SECS    = 2.5
-    local TELEPORT_BACK_DINC  = 8
-    local TELEPORT_STEP_JUMP  = 15
+    local REACH_RADIUS = 4
+    local MIN_IMPROVE_STUDS = 0.75
+    local NO_PROGRESS_SECS = 2.5
+    local TELEPORT_BACK_DINC = 8
+    local TELEPORT_STEP_JUMP = 15
 
-    -- Rubberband heuristics
-    local RUBBER_DEV_STUDS    = 6
-    local SETTLE_SECS         = 0.40
+    local RUBBER_DEV_STUDS = 6
+    local SETTLE_SECS = 0.40
     local MAX_RB_PER_NODE     = 3
     local JUMP_SAMPLE_SECS    = 0.20
 
@@ -1382,7 +1380,7 @@ local function startTweening()
     end
 
     local curIndex = nearestIndex(Root.Position)
-    local fails   = table.create(#positionList, 0)
+    local fails = table.create(#positionList, 0)
     local rbCount = table.create(#positionList, 0)
 
     while tweeningEnabled do
