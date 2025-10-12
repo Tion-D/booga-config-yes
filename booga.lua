@@ -19,7 +19,7 @@ local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local CurrentCamera = workspace.CurrentCamera
 local LocalPlayerMouse = Players.LocalPlayer:GetMouse()
-local PG = LP:WaitForChild("PlayerGui")
+
 
 local GameUtil = require(RS.Modules.GameUtil)
 local ItemData = require(RS.Modules.ItemData)
@@ -32,6 +32,7 @@ local Character = Players.LocalPlayer.Character or Players.LocalPlayer.Character
 local LocalPlayer = game.Players.LocalPlayer
 local Humanoid = Character:WaitForChild("Humanoid")
 local Root = Character:WaitForChild("HumanoidRootPart")
+local PG = LocalPlayer:WaitForChild("PlayerGui")
 
 Players.LocalPlayer.CharacterAdded:Connect(function(char)
     Character = char
