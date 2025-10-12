@@ -2685,7 +2685,7 @@ Tabs.Extra:AddToggle("AutoRebirth", {
     end
 })
 
-Tabs.Auto:AddToggle("AutoBedSpawn", {
+Tabs.Extra:AddToggle("AutoBedSpawn", {
     Title = "Auto Bed Spawn",
     Default = false,
     Callback = function(v)
