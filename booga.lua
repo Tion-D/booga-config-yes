@@ -1,15 +1,15 @@
 setthreadidentity(5)
 local RS = game:GetService("ReplicatedStorage")
--- local ClientAnimalReady = RS:WaitForChild("ClientAnimalReady")
--- local oldNamecall
--- oldNamecall = hookmetamethod(game, "__namecall", function(self, ...)
---     local method = getnamecallmethod and getnamecallmethod() or ""
---     if not checkcaller() and method == "FireServer" and self == ClientAnimalReady then
---         warn("Blocked ClientAnimalReady:FireServer")
---         return
---     end
---     return oldNamecall(self, ...)
--- end)
+local ClientAnimalReady = RS:WaitForChild("ClientAnimalReady")
+local oldNamecall
+oldNamecall = hookmetamethod(game, "__namecall", function(self, ...)
+    local method = getnamecallmethod and getnamecallmethod() or ""
+    if not checkcaller() and method == "FireServer" and self == ClientAnimalReady then
+        warn("Blocked ClientAnimalReady:FireServer")
+        return
+    end
+    return oldNamecall(self, ...)
+end)
 
 
 local PathfindingService = game:GetService("PathfindingService")
@@ -2974,22 +2974,22 @@ Tabs.Extra:AddToggle("AutoDropSelected", {
     end
 })
 
-Tabs.Extra:AddToggle("TPDropToChestToggle", {
-    Title = "TP Dropped Item to Chest",
-    Default = false,
-    Callback = function(v)
-        TPDropToChest = v
+-- Tabs.Extra:AddToggle("TPDropToChestToggle", {
+--     Title = "TP Dropped Item to Chest",
+--     Default = false,
+--     Callback = function(v)
+--         TPDropToChest = v
 
-        if v then
-            chest = chest or GetDeployable("Chest", 100, false)
-            if not chest then
-                TPDropToChest = false
-                Notify("Dropper", "No chest found within 100 studs.")
-                return
-            end
-        end
-    end
-})
+--         if v then
+--             chest = chest or GetDeployable("Chest", 100, false)
+--             if not chest then
+--                 TPDropToChest = false
+--                 Notify("Dropper", "No chest found within 100 studs.")
+--                 return
+--             end
+--         end
+--     end
+-- })
 
 Tabs.Extra:AddSection("Make Farm (turn off cam lock, made by Zam)")
 
@@ -3066,25 +3066,25 @@ Conns.itemsChildAdded = Workspace.Items.ChildAdded:Connect(function(item)
         end)
         return
     end
-    if TPDropToChest and autoDropEnabled and chest and selectedDropItem and item.Name == selectedDropItem then
-        task.spawn(function()
-            local t0 = os.clock()
-            local id = item:GetAttribute("EntityID")
-            while item.Parent == workspace.Items and not id and (os.clock() - t0) < 3 do
-                task.wait()
-                id = item:GetAttribute("EntityID")
-            end
-            if not id then return end
+    -- if TPDropToChest and autoDropEnabled and chest and selectedDropItem and item.Name == selectedDropItem then
+    --     task.spawn(function()
+    --         local t0 = os.clock()
+    --         local id = item:GetAttribute("EntityID")
+    --         while item.Parent == workspace.Items and not id and (os.clock() - t0) < 3 do
+    --             task.wait()
+    --             id = item:GetAttribute("EntityID")
+    --         end
+    --         if not id then return end
 
-            while TPDropToChest and autoDropEnabled and chest and item and item.Parent == workspace.Items do
-                Packets.ForceInteract.send(id)
-                pcall(function() item:PivotTo(chest:GetPivot()) end)
-                Packets.ForceInteract.send()
-                task.wait()
-            end
-        end)
-        return
-    end
+    --         while TPDropToChest and autoDropEnabled and chest and item and item.Parent == workspace.Items do
+    --             Packets.ForceInteract.send(id)
+    --             pcall(function() item:PivotTo(chest:GetPivot()) end)
+    --             Packets.ForceInteract.send()
+    --             task.wait()
+    --         end
+    --     end)
+    --     return
+    -- end
 
     if item.Name == "Coin2" and coinEnabled then
         task.spawn(function()
