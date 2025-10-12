@@ -1,14 +1,16 @@
 setthreadidentity(5)
 local RS = game:GetService("ReplicatedStorage")
 local ClientAnimalReady = RS:WaitForChild("ClientAnimalReady")
-local old; old = hookfunction(ClientAnimalReady.FireServer, function(...)
-    local remote = select(1, ...) 
-    if not checkcaller() and remote == ClientAnimalReady then
-        warn("Blocked")
-        return nil
+local oldNamecall
+oldNamecall = hookmetamethod(game, "__namecall", function(self, ...)
+    local method = getnamecallmethod and getnamecallmethod() or ""
+    if not checkcaller() and method == "FireServer" and self == ClientAnimalReady then
+        warn("Blocked ClientAnimalReady:FireServer")
+        return -- swallow call
     end
-    return old(...)
+    return oldNamecall(self, ...)
 end)
+
 
 local PathfindingService = game:GetService("PathfindingService")
 local TweenService = game:GetService("TweenService")
@@ -124,6 +126,7 @@ local rodBubbleConn
 local autoFishLoop
 local autoFishEnabled = false
 local lastHarvestScan = 0
+local TPDropToChest = false
 
 local autoBrewEnabled = false
 local selectedPotion = "Healing"
@@ -946,11 +949,9 @@ local function CavenodeFarm()
                     local node = v:FindFirstChild("Gold Node")
                     local s = os.clock()
                     repeat
-                        local entity = v.Parent and v or node and node.Parent and node
+                        local entity = (v and v.Parent) and v or (node and node.Parent and node)
                         if entity then
-                            --sendEntitiesBuffer({entity})
-                            Packets.SwingTool.send({node:GetAttribute("EntityID")})
-                            task.wait(1 / 3)
+                            Packets.SwingTool.send({ entity:GetAttribute("EntityID") })
                         end
                         task.wait()
                     until not entity or os.clock() - s > 25
@@ -2968,6 +2969,51 @@ Tabs.Extra:AddToggle("AutoDropSelected", {
             if autoDropTask then
                 pcall(task.cancel, autoDropTask)
                 autoDropTask = nil
+            end
+        end
+    end
+})
+
+Tabs.Extra:AddToggle("TPDropToChestToggle", {
+    Title = "TP Dropped Item to Chest",
+    Default = false,
+    Callback = function(v)
+        TPDropToChest = v
+
+        if v then
+            chest = chest or GetDeployable("Chest", 100, false)
+            if not chest then
+                TPDropToChest = false
+                Notify("Dropper", "No chest found within 100 studs.")
+                return
+            end
+
+            if Conns.tpDropToChest then Conns.tpDropToChest:Disconnect() end
+            Conns.tpDropToChest = Workspace.Items.ChildAdded:Connect(function(item)
+                if not TPDropToChest or not chest then return end
+                if not selectedDropItem or item.Name ~= selectedDropItem then return end
+
+                task.spawn(function()
+                    local t0 = os.clock()
+                    local id = item:GetAttribute("EntityID")
+                    while item.Parent == workspace.Items and not id and (os.clock() - t0) < 3 do
+                        task.wait()
+                        id = item:GetAttribute("EntityID")
+                    end
+                    if not id then return end
+
+                    while TPDropToChest and item and item.Parent == workspace.Items do
+                        Packets.ForceInteract.send(id)
+                        pcall(function() item:PivotTo(chest:GetPivot()) end)
+                        Packets.ForceInteract.send()
+                        task.wait()
+                    end
+                end)
+            end)
+        else
+            if Conns.tpDropToChest then
+                Conns.tpDropToChest:Disconnect()
+                Conns.tpDropToChest = nil
             end
         end
     end
