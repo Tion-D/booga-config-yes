@@ -19,6 +19,8 @@ local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local CurrentCamera = workspace.CurrentCamera
 local LocalPlayerMouse = Players.LocalPlayer:GetMouse()
+local Events = RS:WaitForChild("Events")
+local SpawnFirst = Events:WaitForChild("SpawnFirst")
 
 
 local GameUtil = require(RS.Modules.GameUtil)
@@ -145,6 +147,16 @@ local LEVEL_TO_REBIRTH = 100
 local autoRebirthEnabled = false
 local autoBedSpawnEnabled = false
 local autoBedSpawnThread = nil
+
+local AUTO_FUEL_RADIUS     = 120
+local TOP_UP_TARGET_PCT    = 95
+local TOP_UP_MIN_START_PCT = 60
+local MAX_SENDS_PER_TICK   = 8
+local CAMPFIRE_NAMES       = { ["Campfire"]=true, ["CampfireLit"]=true, ["Fire Pit"]=true, ["FirePit"]=true }
+
+local FUEL_PRIORITY = { "Coal", "Log", "Wood", "Stick", "Leaf", "Leaves", "Bark" }
+
+local autoFuelEnabled, autoFuelThread = false, nil
 
 local POTION_RECIPES = {
     ["Poison"] = { ["Prickly Pear"] = 3, ["Magnetite Bar"] = 1 },
@@ -299,6 +311,117 @@ local function Notify(title, content)
         return
     end
     Fluent:Notify({ Title = title, Content = content, Duration = 5 })
+end
+
+
+local function getFuelInventoryPrioritized()
+    local have = {}
+    local inv = (GameUtil and GameUtil.Data and GameUtil.Data.inventory) or {}
+    local byName = {}
+    for _, slot in ipairs(inv) do
+        local n = slot.name
+        local data = ItemData[n]
+        if data and data.fuels and slot.quantity and slot.quantity > 0 then
+            byName[n] = { qty = slot.quantity, id = ItemIDS[n] }
+        end
+    end
+    local seen = {}
+    for _, name in ipairs(FUEL_PRIORITY) do
+        if byName[name] then
+            table.insert(have, { name = name, id = byName[name].id, qty = byName[name].qty })
+            seen[name] = true
+        end
+    end
+    for name, rec in pairs(byName) do
+        if not seen[name] then
+            table.insert(have, { name = name, id = rec.id, qty = rec.qty })
+        end
+    end
+    return have
+end
+
+local function isCampfire(model)
+    return model and model.Name and CAMPFIRE_NAMES[model.Name] == true and model:GetAttribute("EntityID") ~= nil
+end
+
+local function getCampfirePercent(model)
+    local ok, pct = pcall(function()
+        return tonumber(model.Board.Billboard.Backdrop.TextLabel.Text)
+    end)
+    if ok and pct then return math.clamp(pct, 0, 100) end
+    return nil
+end
+
+local function nearbyCampfires(originPos, radius)
+    local results = {}
+    for _, m in ipairs(Workspace:GetDescendants()) do
+        if m:IsA("Model") and isCampfire(m) then
+            local cf = m.GetPivot and m:GetPivot()
+            if cf and (cf.Position - originPos).Magnitude <= radius then
+                table.insert(results, m)
+            end
+        end
+    end
+    table.sort(results, function(a,b)
+        return (a:GetPivot().Position - originPos).Magnitude < (b:GetPivot().Position - originPos).Magnitude
+    end)
+    return results
+end
+
+local function sendFuelOnce(campfireModel, itemId)
+    local entityID = campfireModel:GetAttribute("EntityID")
+    if not entityID or not itemId then return false end
+    Packets.InteractStructure.send({ entityID = entityID, itemID = itemId })
+    return true
+end
+
+local function fuelCampfireToTarget(campfireModel, fuels, targetPct, maxSends)
+    local sent = 0
+    while sent < maxSends do
+        local pct = getCampfirePercent(campfireModel) or 0
+        if pct >= targetPct then return sent, true end
+        local picked
+        for _, f in ipairs(fuels) do
+            if f.qty and f.qty > 0 then picked = f break end
+        end
+        if not picked then return sent, (pct >= targetPct) end
+        if not sendFuelOnce(campfireModel, picked.id) then return sent, false end
+        picked.qty -= 1
+        sent += 1
+        task.wait(0.05)
+    end
+    return sent, (getCampfirePercent(campfireModel) or 0) >= targetPct
+end
+
+function AutoFuelNearbyCampfires()
+    if not Character or not Root then return false, "no character" end
+    local fuels = getFuelInventoryPrioritized()
+    if #fuels == 0 then return false, "no fuel items" end
+    local any = false
+    for _, camp in ipairs(nearbyCampfires(Root.Position, AUTO_FUEL_RADIUS)) do
+        local pct = getCampfirePercent(camp) or 0
+        if pct <= TOP_UP_MIN_START_PCT then
+            local sent = select(1, fuelCampfireToTarget(camp, fuels, TOP_UP_TARGET_PCT, MAX_SENDS_PER_TICK))
+            any = any or (sent > 0)
+            task.wait(0.1)
+        end
+    end
+    return any, any and "fueled" or "nothing to fuel"
+end
+
+function SetAutoFuelCampfires(enabled)
+    autoFuelEnabled = enabled and true or false
+    if autoFuelEnabled and not autoFuelThread then
+        autoFuelThread = task.spawn(function()
+            while autoFuelEnabled do
+                pcall(AutoFuelNearbyCampfires)
+                task.wait(1.0)
+            end
+        end)
+    elseif (not autoFuelEnabled) and autoFuelThread then
+        pcall(task.cancel, autoFuelThread)
+        autoFuelThread = nil
+    end
 end
 
 
@@ -824,19 +947,7 @@ local function IcenodeFarm()
                 Root.Anchored = true
             end
 
-            if campEnabled then
-                for x, v in next, GetDeployable("Campfire", 25, true) do
-                    if v.deployable.Board.Billboard.Backdrop.TextLabel.Text <= "10" then
-                        local itemID = GetFuel()
-                        if itemID then
-                            Packets.InteractStructure.send({
-                                entityID = v.deployable:GetAttribute("EntityID"),
-                                itemID = itemID
-                            })
-                        end
-                    end
-                end
-            end
+           if campEnabled then AutoFuelNearbyCampfires() end
             
             if pickUpGoldEnabled then
                 for x, v in next, chest.Contents:GetChildren() do
@@ -913,16 +1024,7 @@ local function CavenodeFarm()
                 Root.Anchored = true
             end
 
-            if campEnabled then
-                for x, v in next, GetDeployable("Campfire", 25, true) do
-                    if v.deployable.Board.Billboard.Backdrop.TextLabel.Text <= "10" then
-                        local itemID = GetFuel()
-                        if itemID then
-                            Packets.InteractStructure.send({entityID = v.deployable:GetAttribute("EntityID"), itemID = itemID})
-                        end
-                    end
-                end
-            end
+            if campEnabled then AutoFuelNearbyCampfires() end
             
 
             if pressEnabled then
@@ -950,16 +1052,7 @@ local function antFarm()
             end
         end
         if chest then
-            if campEnabled then
-                for x, v in next, GetDeployable("Campfire", 25, true) do
-                    if v.deployable.Board.Billboard.Backdrop.TextLabel.Text <= "10" then
-                        local itemID = GetFuel()
-                        if itemID then
-                            Packets.InteractStructure.send({entityID = v.deployable:GetAttribute("EntityID"), itemID = itemID})
-                        end
-                    end
-                end
-            end
+            if campEnabled then AutoFuelNearbyCampfires() end
 
             if pressEnabled then
                 if chest.Contents:FindFirstChild("Gold") then
@@ -2203,6 +2296,7 @@ Tabs.GoldEXP:AddToggle("FuelCampfires", {
     Default = false,
     Callback = function(value)
         campEnabled = value
+        SetAutoFuelCampfires(value)
     end
 })
 
