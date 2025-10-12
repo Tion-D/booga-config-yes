@@ -955,18 +955,25 @@ end
 local function antFarm()
     while task.wait(1 / 3) do
         local entities = {}
-        for x,v in next, Workspace:GetPartBoundsInRadius(Root.Position, 25) do
+        for _, v in next, Workspace:GetPartBoundsInRadius(Root.Position, 25) do
             if v.Name == "HumanoidRootPart" and v.Parent.Name == "Queen Ant's Servant" then
-                Packets.SwingTool.send({v.Parent:GetAttribute("EntityID")})
+                local id = v.Parent:GetAttribute("EntityID")
+                if id then
+                    table.insert(entities, id)
+                end
             end
         end
+        if #entities > 0 then
+            Packets.SwingTool.send(entities)
+        end
+
         if chest then
             if campEnabled then
-                for x, v in next, GetDeployable("Campfire", 25, true) do
+                for _, v in next, GetDeployable("Campfire", 25, true) do
                     if v.deployable.Board.Billboard.Backdrop.TextLabel.Text <= "10" then
                         local itemID = GetFuel()
                         if itemID then
-                            Packets.InteractStructure.send({entityID = v.deployable:GetAttribute("EntityID"), itemID = itemID})
+                            Packets.InteractStructure.send({ entityID = v.deployable:GetAttribute("EntityID"), itemID = itemID })
                         end
                     end
                 end
@@ -974,7 +981,7 @@ local function antFarm()
 
             if pressEnabled then
                 if chest.Contents:FindFirstChild("Gold") then
-                    for x,v in next, chest.Contents:GetChildren() do
+                    for _, v in next, chest.Contents:GetChildren() do
                         if v.Name == "Gold" then
                             Packets.Pickup.send(v:GetAttribute("EntityID"))
                         end
@@ -987,8 +994,8 @@ local function antFarm()
                     if quantity then
                         local entityID = deployable:GetAttribute("EntityID")
                         local itemID = ItemIDS.Gold
-                        for x = 1, quantity do
-                            Packets.InteractStructure.send({entityID = entityID, itemID = itemID})
+                        for i = 1, quantity do
+                            Packets.InteractStructure.send({ entityID = entityID, itemID = itemID })
                             task.wait(0.2)
                         end
                     end
