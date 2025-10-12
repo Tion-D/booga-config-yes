@@ -1339,25 +1339,25 @@ local function startTweening()
     if not Humanoid or not Humanoid.Parent then
         Notify("Humanoid not found, reinitializing.")
         Character = Players.LocalPlayer.Character or Players.LocalPlayer.CharacterAdded:Wait()
-        Humanoid = Character:WaitForChild("Humanoid")
-        Root = Character:WaitForChild("HumanoidRootPart")
+        Humanoid  = Character:WaitForChild("Humanoid")
+        Root      = Character:WaitForChild("HumanoidRootPart")
     end
     if #positionList == 0 then
         Notify("Unable to start Tweening. No positions available.")
         return
     end
 
-    local REACH_RADIUS = 4
-    local MIN_IMPROVE_STUDS = 0.75
-    local NO_PROGRESS_SECS = 2.5
-    local TELEPORT_BACK_DINC = 8
-    local TELEPORT_STEP_JUMP = 15
+    local REACH_RADIUS        = 4
+    local MIN_IMPROVE_STUDS   = 0.75
+    local NO_PROGRESS_SECS    = 2.5
+    local TELEPORT_BACK_DINC  = 8
+    local TELEPORT_STEP_JUMP  = 15
 
-    local RUBBER_DEV_STUDS    = 6 
-    local SNAP_BACK_STUDS = 8
-    local JUMP_SAMPLE_SECS = 0.20
-    local SETTLE_SECS = 0.40
-    local MAX_RB_PER_NODE = 3
+    -- Rubberband heuristics
+    local RUBBER_DEV_STUDS    = 6
+    local SETTLE_SECS         = 0.40
+    local MAX_RB_PER_NODE     = 3
+    local JUMP_SAMPLE_SECS    = 0.20
 
     local function nearestIndex(fromPos)
         local bestI, bestD = 1, math.huge
@@ -1372,7 +1372,7 @@ local function startTweening()
     end
 
     local curIndex = nearestIndex(Root.Position)
-    local fails = table.create(#positionList, 0)
+    local fails   = table.create(#positionList, 0)
     local rbCount = table.create(#positionList, 0)
 
     while tweeningEnabled do
@@ -1389,11 +1389,11 @@ local function startTweening()
         end
 
         local targetPos = Vector3.new(pos.X, pos.Y, pos.Z)
-        local startPos = Root.Position
+        local startPos  = Root.Position
         local dist = (startPos - targetPos).Magnitude
         local speed = walkSpeed
         local MAX_TRAVEL_SECS = math.max(15, dist / (speed * 0.6))
-        local duration  = math.max(0.05, dist / speed)
+        local duration = math.max(0.05, dist / speed)
 
         if tweenConn then tweenConn:Disconnect(); tweenConn = nil end
         if tween then tween:Cancel(); tween = nil end
@@ -1402,11 +1402,12 @@ local function startTweening()
         tween = TweenService:Create(Root, ti, { CFrame = CFrame.new(targetPos) })
 
         local completed, restartToNext, rubberbanded = false, false, false
+        local jumpOuter = false
+
         local t0 = tick()
         local lastPoll = t0
         local lastPos  = startPos
         local lastDist = (lastPos - targetPos).Magnitude
-        local lastCheckTime = t0
 
         tweenConn = tween.Completed:Connect(function()
             completed = true
@@ -1471,17 +1472,21 @@ local function startTweening()
 
                 Root.Anchored = false
                 task.wait(0.1)
-                goto continue_outer
+                jumpOuter = true
+                break
             end
 
             lastPoll = now
             lastDist = curDist
-            lastPos  = curPos
-            lastCheckTime = now
+            lastPos = curPos
         end
 
         if tweenConn then tweenConn:Disconnect(); tweenConn = nil end
         if tween then tween:Cancel(); tween = nil end
+
+        if jumpOuter then
+            continue
+        end
 
         if restartToNext then
             fails[curIndex] = (fails[curIndex] or 0) + 1
@@ -1492,20 +1497,19 @@ local function startTweening()
             curIndex = (curIndex % #positionList) + 1
             Root.Anchored = false
             task.wait(0.15)
-            goto continue_outer
+            continue
         end
 
         fails[curIndex] = 0
         rbCount[curIndex] = 0
         curIndex = (curIndex % #positionList) + 1
         task.wait(0.1)
-
-        ::continue_outer::
     end
 
     if tweenConn then tweenConn:Disconnect(); tweenConn = nil end
     if tween then tween:Cancel(); tween = nil end
 end
+
 
 local function autoJump()
     while autoJumpEnabled do
