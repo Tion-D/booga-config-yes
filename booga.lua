@@ -652,29 +652,36 @@ local function GetCrewmates()
     return crewmates
 end
 
+local SEND_DT = 0.02
+local LOOKUP_DT = 2
+local BURST_MAX = 5
+
 local function pressCoins()
+    local press, entityID, lastLookup, lastSend = nil, nil, 0, 0
+
     while CoinpressEnabled do
-        local deployable = GetDeployable("Coin Press", 25)
-        if not deployable then task.wait(0.1) continue end
+        local now = os.clock()
 
-        local entityID = deployable:GetAttribute("EntityID")
-        if not entityID then task.wait(0.1) continue end
+        if (not press or not press.Parent or (now - lastLookup) >= LOOKUP_DT) then
+            press = GetDeployable("Coin Press", 25)
+            entityID = press and press:GetAttribute and press:GetAttribute("EntityID") or nil
+            lastLookup = now
+        end
 
-        local goldAmt = tonumber(GetQuantity("Gold") or 0)
-        if goldAmt == 0 then task.wait(0.1) continue end
+        if entityID then
+            local goldAmt = GetQuantity("Gold") or 0
+            if goldAmt > 0 and (now - lastSend) >= SEND_DT then
+                local n = math.min(goldAmt, BURST_MAX)
+                for i = 1, n do
+                    Packets.InteractStructure.send({ entityID = entityID, itemID = ItemIDS.Gold })
+                end
+                lastSend = now
+            end
+        end
 
-        Packets.InteractStructure.send({ entityID = entityID, itemID = ItemIDS.Gold })
-        task.wait(0.03)
-
-        local t0 = os.clock()
-        local before = goldAmt
-        repeat
-            task.wait(0.005)
-            goldAmt = tonumber(GetQuantity("Gold") or 0)
-        until goldAmt < before or (os.clock() - t0) > 0.5
+        RunService.Heartbeat:Wait()
     end
 end
-
 
 local function pickupCoins()
     while pickUpPressedGold do
