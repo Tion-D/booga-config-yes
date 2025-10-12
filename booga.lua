@@ -6,7 +6,7 @@ oldNamecall = hookmetamethod(game, "__namecall", function(self, ...)
     local method = getnamecallmethod and getnamecallmethod() or ""
     if not checkcaller() and method == "FireServer" and self == ClientAnimalReady then
         warn("Blocked ClientAnimalReady:FireServer")
-        return -- swallow call
+        return
     end
     return oldNamecall(self, ...)
 end)
@@ -2987,34 +2987,6 @@ Tabs.Extra:AddToggle("TPDropToChestToggle", {
                 Notify("Dropper", "No chest found within 100 studs.")
                 return
             end
-
-            if Conns.tpDropToChest then Conns.tpDropToChest:Disconnect() end
-            Conns.tpDropToChest = Workspace.Items.ChildAdded:Connect(function(item)
-                if not TPDropToChest or not chest then return end
-                if not selectedDropItem or item.Name ~= selectedDropItem then return end
-
-                task.spawn(function()
-                    local t0 = os.clock()
-                    local id = item:GetAttribute("EntityID")
-                    while item.Parent == workspace.Items and not id and (os.clock() - t0) < 3 do
-                        task.wait()
-                        id = item:GetAttribute("EntityID")
-                    end
-                    if not id then return end
-
-                    while TPDropToChest and item and item.Parent == workspace.Items do
-                        Packets.ForceInteract.send(id)
-                        pcall(function() item:PivotTo(chest:GetPivot()) end)
-                        Packets.ForceInteract.send()
-                        task.wait()
-                    end
-                end)
-            end)
-        else
-            if Conns.tpDropToChest then
-                Conns.tpDropToChest:Disconnect()
-                Conns.tpDropToChest = nil
-            end
         end
     end
 })
@@ -3089,6 +3061,25 @@ Conns.itemsChildAdded = Workspace.Items.ChildAdded:Connect(function(item)
                     pcall(function() item:PivotTo(chest:GetPivot()) end)
                     Packets.ForceInteract.send()
                 end
+                task.wait()
+            end
+        end)
+        return
+    end
+    if TPDropToChest and autoDropEnabled and chest and selectedDropItem and item.Name == selectedDropItem then
+        task.spawn(function()
+            local t0 = os.clock()
+            local id = item:GetAttribute("EntityID")
+            while item.Parent == workspace.Items and not id and (os.clock() - t0) < 3 do
+                task.wait()
+                id = item:GetAttribute("EntityID")
+            end
+            if not id then return end
+
+            while TPDropToChest and autoDropEnabled and chest and item and item.Parent == workspace.Items do
+                Packets.ForceInteract.send(id)
+                pcall(function() item:PivotTo(chest:GetPivot()) end)
+                Packets.ForceInteract.send()
                 task.wait()
             end
         end)
