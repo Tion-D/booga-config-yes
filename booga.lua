@@ -521,7 +521,7 @@ local function wasteFoodLoop()
         if amt > threshold then
             local toWaste = amt - threshold
             for i = 1, toWaste do
-                local idx = findItemIndexByName(fruitName)
+                local idx = findFruitIndex(fruitName)
                 if idx == 0 then
                     break
                 end
