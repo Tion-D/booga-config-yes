@@ -710,7 +710,6 @@ local function pickupAllItem()
     end
 end
 
-
 local function pickupGolds()
     while pickupGold do
        local Items = Workspace:FindFirstChild("Items")
@@ -757,6 +756,7 @@ local function sendEntitiesBuffer(entities)
     
     Packets.SwingTool.send(finalBuffer)
 end
+
 local function campfireRefuelLoop()
     while campEnabled do
         local list = GetDeployable("Campfire", 30, true) or {}
