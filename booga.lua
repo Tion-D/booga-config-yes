@@ -709,41 +709,47 @@ local function pickupAllItem()
         task.wait(0.5)
     end
 end
+local CHEST_LOOKUP_DT = 2
+local _lastChestLookup, _chestRef = 0, nil
+local function getChest()
+    local now = os.clock()
+    if (not _chestRef or not _chestRef.Parent) or (now - _lastChestLookup) >= CHEST_LOOKUP_DT then
+        _chestRef = GetDeployable("Chest", 100)
+        _lastChestLookup = now
+    end
+    return _chestRef
+end
 
-local CHEST_LOOKUP_DT = 2.0
+local function pickupFromChestByName(name)
+    local chest = getChest()
+    if not chest or not chest:FindFirstChild("Contents") then return end
 
-local function pickupGolds()
-    local lastChestLookup = 0
-    while pickupGold do
-        local now = os.clock()
-        if (not chest or not chest.Parent or (now - lastChestLookup) >= CHEST_LOOKUP_DT) then
-            chest = GetDeployable("Chest", 100, false)
-            lastChestLookup = now
-        end
-
-        if pickUpGoldEnabled and chest and chest.Parent then
-            for _, v in next, chest.Contents:GetChildren() do
-                if v.Name == "Gold" then
-                    local id = v:GetAttribute("EntityID")
-                    Packets.Pickup.send(id)
-                    task.wait()
-                end
+    for _, v in ipairs(chest.Contents:GetChildren()) do
+        if v.Name == name then
+            local id = v:GetAttribute("EntityID")
+            if id then
+                Packets.Pickup.send(id)
+                task.wait(0.1)
             end
         end
+    end
+end
 
+local function pickupGolds()
+    while pickupGold do
         local ItemsFolder = Workspace:FindFirstChild("Items")
         if ItemsFolder then
             for _, item in ipairs(ItemsFolder:GetChildren()) do
                 if item.Name == "Gold" then
                     local t0 = os.clock()
                     local id = item:GetAttribute("EntityID")
-                    while item.Parent == Workspace.Items and not id and (os.clock() - t0) < 3 do
+                    while item.Parent == workspace.Items and not id and os.clock() - t0 < 3 do
                         task.wait()
                         id = item:GetAttribute("EntityID")
                     end
                     if id then
                         for i = 1, 8 do
-                            if not item or item.Parent ~= Workspace.Items then break end
+                            if not item or item.Parent ~= workspace.Items then break end
                             Packets.Pickup.send(id)
                             task.wait(0.12)
                         end
@@ -752,53 +758,41 @@ local function pickupGolds()
             end
         end
 
-        task.wait(0.25)
+        pickupFromChestByName("Gold")
+
+        task.wait()
     end
 end
 
 local function pickupRawGolds()
-    local lastChestLookup = 0
     while pickupRawGold do
-        local now = os.clock()
-        if (not chest or not chest.Parent or (now - lastChestLookup) >= CHEST_LOOKUP_DT) then
-            chest = GetDeployable("Chest", 100, false)
-            lastChestLookup = now
-        end
-
-        if chest and chest.Parent then
-            for _, v in next, chest.Contents:GetChildren() do
-                if v.Name == "Raw Gold" then
-                    local id = v:GetAttribute("EntityID")
-                    Packets.Pickup.send(id)
-                    task.wait()
-                end
-            end
-        end
-
         local ItemsFolder = Workspace:FindFirstChild("Items")
         if ItemsFolder then
             for _, item in ipairs(ItemsFolder:GetChildren()) do
                 if item.Name == "Raw Gold" then
                     local t0 = os.clock()
                     local id = item:GetAttribute("EntityID")
-                    while item.Parent == Workspace.Items and not id and (os.clock() - t0) < 3 do
+                    while item.Parent == workspace.Items and not id and os.clock() - t0 < 3 do
                         task.wait()
                         id = item:GetAttribute("EntityID")
                     end
                     if id then
                         for i = 1, 8 do
-                            if not item or item.Parent ~= Workspace.Items then break end
+                            if not item or item.Parent ~= workspace.Items then break end
                             Packets.Pickup.send(id)
-                            task.wait()
+                            task.wait(0.12)
                         end
                     end
                 end
             end
         end
 
-        task.wait(0.25)
+        pickupFromChestByName("Raw Gold")
+
+        task.wait()
     end
 end
+
 
 local function sendEntitiesBuffer(entities)
     local bufferSize = #entities * 4 + 2
