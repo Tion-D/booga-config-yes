@@ -1145,69 +1145,75 @@ local function fruitJump(on)
     end
 end
 
-local recentPick = {}
-local PICK_COOLDOWN = 0.8
-
-local function firstBasePartDescendant(inst)
-    for _, d in ipairs(inst:GetDescendants()) do
-        if d:IsA("BasePart") then return d end
-    end
-end
-
-local function getWorldPos(inst)
-    if typeof(inst.GetPivot) == "function" then
-        local ok, cf = pcall(inst.GetPivot, inst)
-        if ok and cf then return cf.Position end
-    end
-    if inst:IsA("Model") and inst.PrimaryPart then
-        return inst.PrimaryPart.Position
-    end
-    if inst:IsA("BasePart") then
+-- Helper: get a safe 3D position for any Instance (Model/BasePart)
+local function safePosition(inst)
+    if not inst then return nil end
+    if inst:IsA("Model") then
+        local ok, cfr = pcall(function() return inst:GetPivot() end)
+        if ok and cfr then return cfr.Position end
+        local pp = inst.PrimaryPart
+        if pp then return pp.Position end
+    elseif inst:IsA("BasePart") then
         return inst.Position
-    end
-    local bp = firstBasePartDescendant(inst)
-    return bp and bp.Position or nil
-end
-
-local function findEntityId(inst)
-    local id = inst:GetAttribute("EntityID")
-    if id then return id end
-    local p = inst.Parent
-    for _ = 1, 2 do
-        if not p then break end
-        id = p:GetAttribute("EntityID")
-        if id then return id end
-        p = p.Parent
-    end
-    for _, d in ipairs(inst:GetChildren()) do
-        id = d:GetAttribute("EntityID")
-        if id then return id end
     end
     return nil
 end
 
-local function isCropByName(name)
-    local data = ItemData[name]
-    return data and data.itemType == "crop"
+-- Helper: find the nearest Model "root" for naming/attributes
+local function rootModel(inst)
+    if not inst then return nil end
+    if inst:IsA("Model") then return inst end
+    local anc = inst:FindFirstAncestorOfClass("Model")
+    return anc
 end
 
-local function harvestNearbyCrops(maxDist)
-    local resources = Workspace:FindFirstChild("Resources")
-    if not (resources and Root) then return end
+-- Helper: walk up to find an EntityID on self or ancestors
+local function findEntityId(inst)
+    local cur = inst
+    for _ = 1, 5 do
+        if not cur then break end
+        local id = cur:GetAttribute("EntityID")
+        if id then return id end
+        cur = cur.Parent
+    end
+    return nil
+end
 
-    for _, node in ipairs(resources:GetChildren()) do
-        if isCropByName(node.Name) or (node:IsA("BasePart") and isCropByName(node.Parent and node.Parent.Name or "")) then
-            local pos = getWorldPos(node)
-            if pos and (Root.Position - pos).Magnitude <= (maxDist or 25) then
-                local id = findEntityId(node)
-                if id then
-                    local t = os.clock()
-                    if not recentPick[id] or (t - recentPick[id]) >= PICK_COOLDOWN then
-                        pcall(Packets.Pickup.send, id)
-                        recentPick[id] = t
+-- Helper: decide if this thing is a crop by name via ItemData
+local function isCropByName(name)
+    local d = name and ItemData[name]
+    return (d and d.itemType == "crop") or false
+end
+
+-- Harvest loop (drop-in)
+if harEnabled and (os.clock() - lastHarvestScan > 0.5) then
+    lastHarvestScan = os.clock()
+    local resources = Workspace:FindFirstChild("Resources")
+    if resources and Root then
+        local me = Root.Position
+        local toPick = {}
+        local seenId = {}
+
+        -- Descendants instead of Children (many games nest crop parts)
+        for _, inst in ipairs(resources:GetDescendants()) do
+            -- Find a model root to read a stable name for ItemData
+            local model = rootModel(inst)
+            if model and isCropByName(model.Name) then
+                local pos = safePosition(model)
+                if pos and (me - pos).Magnitude < 25 then
+                    local id = findEntityId(inst) or findEntityId(model)
+                    if id and not seenId[id] then
+                        seenId[id] = true
+                        table.insert(toPick, id)
                     end
                 end
             end
+        end
+
+        -- Send pickups with gentle pacing
+        for _, id in ipairs(toPick) do
+            pcall(Packets.Pickup.send, id)
+            task.wait(0.06) -- tiny delay to avoid server throttle
         end
     end
 end
@@ -1238,9 +1244,29 @@ local function fruitFarm()
             end
         end
 
-        if harEnabled and (os.clock() - lastHarvestScan > 0.25) then
-            lastHarvestScan = os.clock()
-            harvestNearbyCrops(25)
+        if harEnabled then
+            local resources = Workspace:FindFirstChild("Resources")
+            if resources and Root then
+                for _, n in ipairs(resources:GetChildren()) do
+                    local data = ItemData[n.Name]
+                    if data and data.itemType == "crop" then
+                        local pos
+                        if typeof(n.GetPivot) == "function" then
+                            local ok, pivot = pcall(function() return n:GetPivot() end)
+                            if ok and pivot then pos = pivot.Position end
+                        elseif n:IsA("BasePart") then
+                            pos = n.Position
+                        end
+
+                        if pos and (Root.Position - pos).Magnitude < 25 then
+                            local id = n:GetAttribute("EntityID")
+                            if id then
+                                pcall(Packets.Pickup.send, id)
+                            end
+                        end
+                    end
+                end
+            end
         end
 
 
