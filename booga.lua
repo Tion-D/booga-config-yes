@@ -509,28 +509,31 @@ local function wastelogLoop()
 end
 
 local function wasteFoodLoop()
-    while task.wait() do
+    while task.wait(0.20) do
         local fruitName = selectedFruit or fruit
         if not fruitName then
             continue
         end
 
-        local amt = tonumber(select(1, GetQuantity(fruitName))) or 0
         local threshold = tonumber(wasteFoodTo) or 0
-
+        local amt = tonumber(select(1, GetQuantity(fruitName))) or 0
         if amt > threshold then
-            local toWaste = amt - threshold
-            for i = 1, toWaste do
-                local idx = findFruitIndex(fruitName)
-                if idx == 0 then
-                    break
-                end
+            while true do
+                if (selectedFruit or fruit) ~= fruitName then break end
+
+                local curAmt, idx = GetQuantity(fruitName)
+                curAmt = tonumber(curAmt or 0)
+
+                if not idx or idx == 0 then break end
+                if curAmt <= threshold then break end
+
                 Packets.UseBagItem.send(idx)
                 task.wait()
             end
         end
     end
 end
+
 
 local function deleteItems()
     local itemsFolder = Workspace:FindFirstChild("Items")
