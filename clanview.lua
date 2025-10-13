@@ -3,7 +3,7 @@ local RS = game:GetService("ReplicatedStorage")
 local HttpService = game:GetService("HttpService")
 local Events = RS:WaitForChild("Events")
 
-local WEBHOOK_URL = "https://discord.com/api/webhooks/1423118239235575888/Y2Ck-Lx5PAn-B2JTp967hQH1X-s8YLc9V762BGviBBwV3DPC8qPOGnxlSmDr1sqdA5lh"
+local WEBHOOK_URL = ""
 local RANK = { "Member", "Officer", "Admin", "Owner" }
 
 local function UName(id)
