@@ -144,7 +144,8 @@ local POST_EAT_COOLDOWN = 2.0
 local LEVEL_TO_REBIRTH = 100
 local autoRebirthEnabled = false
 local autoBedSpawnEnabled = false
-local autoBedSpawnThread = nil
+local autoBedSpawnThread
+local bedSpawnBusy = false
 
 local POTION_RECIPES = {
     ["Poison"] = { ["Prickly Pear"] = 3, ["Magnetite Bar"] = 1 },
@@ -177,16 +178,6 @@ local defaultConfigFile = "MidasConfig.txt"
 
 local configContent = game:HttpGet(defaultConfigUrl)
 writefile(defaultConfigFile, configContent)
-
-LocalPlayer:SetAttribute("hasSpawned", false)
-
-LocalPlayer.CharacterAdded:Connect(function(char)
-    LocalPlayer:SetAttribute("hasSpawned", false)
-    local hum = char:WaitForChild("Humanoid")
-    hum.Died:Connect(function()
-        LocalPlayer:SetAttribute("hasSpawned", false)
-    end)
-end)
 
 local function make_8x8()
     if not Character or not Character.Parent then
@@ -1970,52 +1961,44 @@ function doRebirthIfReady()
     return false
 end
 
-local function showGameplayUI()
-    local SpawnGui = PG:FindFirstChild("SpawnGui")
-    local MainGui = PG:FindFirstChild("MainGui")
-    local Topbar = PG:FindFirstChild("Topbar")
-    if SpawnGui then SpawnGui.Enabled = false end
-    if MainGui then MainGui.Enabled  = true  end
-    if Topbar then Topbar.Enabled   = true  end
-    for _, ui in ipairs(PG:GetChildren()) do
-        if ui:IsA("ScreenGui") and ui.Enabled and ui.Name:lower():find("spawn") then
-            ui.Enabled = false
-        end
-    end
-end
-
 local function bedCooldown()
     local now = math.floor(Clock.getServerTime())
     local last = tonumber(GameUtil.Data and GameUtil.Data.lastSpawnFromBed or 0) or 0
     return math.max(120 - (now - last), 0)
 end
-
 local function spawnAtBed()
     local cd = bedCooldown()
     if cd > 0 then
         warn(("[AutoSpawn] Bed cooldown: %ds left"):format(cd))
         return false
     end
+
+    local oldHas = LocalPlayer:GetAttribute("hasSpawned")
+    LocalPlayer:SetAttribute("hasSpawned", true)
+
     local ok, serverStamp = pcall(function()
         return SpawnFirst:InvokeServer(true)
     end)
-    if ok and serverStamp then
-        LocalPlayer:SetAttribute("hasSpawned", true)
-        if GameUtil and GameUtil.Data then GameUtil.Data.lastSpawnFromBed = serverStamp end
-        local Character = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
-        local Humanoid = Character:WaitForChild("Humanoid")
-        CurrentCamera.CameraType = Enum.CameraType.Custom
-        CurrentCamera.CameraSubject = Humanoid
-        showGameplayUI()
-        warn("[AutoSpawn] Spawned at Bed ✔")
-        return true
-    else
+
+    if not ok or not serverStamp then
+        LocalPlayer:SetAttribute("hasSpawned", oldHas or false)
         warn("[AutoSpawn] Bed spawn rejected.")
-        showGameplayUI()
         return false
     end
-end
 
+    if GameUtil and GameUtil.Data then
+        GameUtil.Data.lastSpawnFromBed = serverStamp
+    end
+
+    local Character = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
+    local Humanoid  = Character:WaitForChild("Humanoid")
+
+    CurrentCamera.CameraType = Enum.CameraType.Custom
+    CurrentCamera.CameraSubject = Humanoid
+
+    warn("[AutoSpawn] Spawned at Bed ✔")
+    return true
+end
 
 
 local Fluent = loadstring(game:HttpGet("https://github.com/dawid-scripts/Fluent/releases/latest/download/main.lua"))()
@@ -2673,6 +2656,19 @@ Tabs.Extra:AddToggle("AutoRebirth", {
     Default = false,
     Callback = function(v)
         autoRebirthEnabled = v
+        if v then
+            autoRebirthThread = task.spawn(function()
+                while autoRebirthEnabled do
+                    doRebirthIfReady()
+                    task.wait(1)
+                end
+            end)
+        else
+            if autoRebirthThread then
+                task.cancel(autoRebirthThread)
+                autoRebirthThread = nil
+            end
+        end
     end
 })
 
@@ -2682,27 +2678,21 @@ local function isOnSpawnScreen()
 end
 
 
-Tabs.Extra:AddToggle("AutoBedSpawn", {
+TTabs.Extra:AddToggle("AutoBedSpawn", {
     Title = "Auto Bed Spawn",
     Default = false,
-    Callback = function(v)
-        autoBedSpawnEnabled = v
-        if v then
+    Callback = function(enabled)
+        autoBedSpawnEnabled = enabled
+        if enabled then
             autoBedSpawnThread = task.spawn(function()
                 local lastTry = 0
                 while autoBedSpawnEnabled do
-                    if isOnSpawnScreen() then
-                        LocalPlayer:SetAttribute("hasSpawned", false)
-                    end
+                    local needSpawn = (LocalPlayer:GetAttribute("hasSpawned") ~= true)
 
                     local now = os.clock()
-                    if (now - lastTry) >= 1 then
+                    if needSpawn and (now - lastTry) >= 1.0 and bedCooldown() <= 0 then
                         lastTry = now
-                        local shouldTry = (not LocalPlayer:GetAttribute("hasSpawned")) and (bedCooldown() <= 0)
-
-                        if shouldTry then
-                            pcall(spawnAtBed)
-                        end
+                        spawnAtBed()
                     end
 
                     task.wait(0.2)
@@ -2716,7 +2706,6 @@ Tabs.Extra:AddToggle("AutoBedSpawn", {
         end
     end
 })
-
 
 Tabs.Extra:AddToggle("PickupItems", {
     Title = "Pickup everything",
