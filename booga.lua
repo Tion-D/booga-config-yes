@@ -508,16 +508,26 @@ local function wastelogLoop()
     end
 end
 
-local function wasteFoodLoop(fruit)
+local function wasteFoodLoop()
     while task.wait() do
-        local amt, id = GetQuantity(fruit)
-        amt = tonumber(amt)
-        local wasteFoodToNumber = tonumber(wasteFoodTo)
-        if amt and wasteFoodToNumber and amt > wasteFoodToNumber then
-            for x = 1, amt - wasteFoodToNumber do
-                Packets.UseBagItem.send(id)
+        local fruitName = selectedFruit or fruit
+        if not fruitName then
+            continue
+        end
+
+        local amt = tonumber(select(1, GetQuantity(fruitName))) or 0
+        local threshold = tonumber(wasteFoodTo) or 0
+
+        if amt > threshold then
+            local toWaste = amt - threshold
+            for i = 1, toWaste do
+                local idx = findItemIndexByName(fruitName)
+                if idx == 0 then
+                    break
+                end
+                Packets.UseBagItem.send(idx)
+                task.wait()
             end
-            task.wait()
         end
     end
 end
@@ -2499,7 +2509,7 @@ Tabs.GoldEXP:AddToggle("AutoWasteFood", {
     Default = false,
     Callback = function(value)
         if value then
-            wasteFoodLoopThread = task.spawn(wasteFoodLoop, selectedFruit)
+            wasteFoodLoopThread = task.spawn(wasteFoodLoop)
         else
             if wasteFoodLoopThread then
                 task.cancel(wasteFoodLoopThread)
