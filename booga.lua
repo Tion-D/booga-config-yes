@@ -725,10 +725,8 @@ local function pickupGolds()
             for _, v in next, chest.Contents:GetChildren() do
                 if v.Name == "Gold" then
                     local id = v:GetAttribute("EntityID")
-                    if id then
-                        Packets.Pickup.send(id)
-                        task.wait(0.05)
-                    end
+                    Packets.Pickup.send(id)
+                    task.wait()
                 end
             end
         end
@@ -769,12 +767,10 @@ local function pickupRawGolds()
 
         if chest and chest.Parent then
             for _, v in next, chest.Contents:GetChildren() do
-                if v.Name == "Raw Gold" or v.Name == "Gold" then
+                if v.Name == "Raw Gold" then
                     local id = v:GetAttribute("EntityID")
-                    if id then
-                        Packets.Pickup.send(id)
-                        task.wait(0.05)
-                    end
+                    Packets.Pickup.send(id)
+                    task.wait()
                 end
             end
         end
@@ -793,7 +789,7 @@ local function pickupRawGolds()
                         for i = 1, 8 do
                             if not item or item.Parent ~= Workspace.Items then break end
                             Packets.Pickup.send(id)
-                            task.wait(0.12)
+                            task.wait()
                         end
                     end
                 end
