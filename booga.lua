@@ -2678,7 +2678,7 @@ local function isOnSpawnScreen()
 end
 
 
-TTabs.Extra:AddToggle("AutoBedSpawn", {
+Tabs.Extra:AddToggle("AutoBedSpawn", {
     Title = "Auto Bed Spawn",
     Default = false,
     Callback = function(enabled)
