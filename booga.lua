@@ -1173,15 +1173,29 @@ local function fruitFarm()
         if harEnabled and (os.clock() - lastHarvestScan > 0.5) then
             lastHarvestScan = os.clock()
             local resources = Workspace:FindFirstChild("Resources")
-            if resources then
+            if resources and Root then
                 for _, n in ipairs(resources:GetChildren()) do
-                    local item = ItemData[n.Name]
-                    if item and item.itemType == "crop" and (Root.Position - n:GetPivot().Position).Magnitude < 25 then
-                        Packets.Pickup.send(n:GetAttribute("EntityID"))
+                    local data = ItemData[n.Name]
+                    if data and data.itemType == "crop" then
+                        local pos
+                        if typeof(n.GetPivot) == "function" then
+                            local ok, pivot = pcall(function() return n:GetPivot() end)
+                            if ok and pivot then pos = pivot.Position end
+                        elseif n:IsA("BasePart") then
+                            pos = n.Position
+                        end
+
+                        if pos and (Root.Position - pos).Magnitude < 25 then
+                            local id = n:GetAttribute("EntityID")
+                            if id then
+                                pcall(Packets.Pickup.send, id)
+                            end
+                        end
                     end
                 end
             end
         end
+
 
         if plantEnabled then
             for _, v in ipairs(deployable) do
