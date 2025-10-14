@@ -23,6 +23,7 @@ local Events = RS:WaitForChild("Events")
 local RefreshServers = Events:WaitForChild("RefreshServers")
 local TeleportEvent = Events:WaitForChild("Teleport")
 local PG = LP:WaitForChild("PlayerGui")
+local SpawnFirst = Events:WaitForChild("SpawnFirst")
 
 local Packets = require(RS.Modules.Packets)
 local traderData = require(RS.Modules.traderData)
