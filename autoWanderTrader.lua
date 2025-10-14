@@ -95,6 +95,13 @@ local function ensureSpawned(fromBed)
 	return true
 end
 
+local function findTraderNPCStrict()
+	local root = workspace:FindFirstChild("DialogNPCs"); if not root then return nil end
+	local normal = root:FindFirstChild("Normal"); if normal then local npc = normal:FindFirstChild("Wandering Trader"); if npc then return npc end end
+	for _, d in ipairs(root:GetDescendants()) do if d.Name=="Wandering Trader" then return d end end
+	return nil
+end
+
 local function getTraderTimeLeft()
     local npc = findTraderNPCStrict()
     if not npc then return nil end
@@ -194,12 +201,6 @@ local function hopTo(jobId)
 end
 
 local function dist(a,b) if not a or not b then return math.huge end return (a-b).Magnitude end
-local function findTraderNPCStrict()
-	local root = workspace:FindFirstChild("DialogNPCs"); if not root then return nil end
-	local normal = root:FindFirstChild("Normal"); if normal then local npc = normal:FindFirstChild("Wandering Trader"); if npc then return npc end end
-	for _, d in ipairs(root:GetDescendants()) do if d.Name=="Wandering Trader" then return d end end
-	return nil
-end
 
 local function tryFirePrompt(npc)
 	local prompt
