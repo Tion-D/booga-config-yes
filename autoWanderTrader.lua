@@ -144,15 +144,50 @@ local function hopTo(jobId)
 end
 
 -- =============== Trader Detection ===============
-local function findTraderNPC()
-	local d = workspace:FindFirstChild("DialogNPCs")
-	if not d then return nil end
-	for _, desc in ipairs(d:GetDescendants()) do
-		if desc.Name == "Wandering Trader" then
-			return desc
-		end
-	end
-	return nil
+local function findTraderNPCPath()
+    local root = workspace:FindFirstChild("DialogNPCs")
+    if not root then return nil end
+    -- prefer exact path first
+    local normal = root:FindFirstChild("Normal")
+    if normal then
+        local exact = normal:FindFirstChild("Wandering Trader")
+        if exact then return exact end
+    end
+    -- fallback: any descendant with that name
+    for _, inst in ipairs(root:GetDescendants()) do
+        if typeof(inst.Name) == "string" and inst.Name == "Wandering Trader" then
+            return inst
+        end
+    end
+    return nil
+end
+
+-- Wait up to `timeoutSec` for the trader to appear (handles late replication)
+local function waitForTraderNPC(timeoutSec)
+    local npc = findTraderNPCPath()
+    if npc then return npc end
+
+    local root = workspace:WaitForChild("DialogNPCs", 5)
+    if not root then return nil end
+
+    timeoutSec = timeoutSec or 6
+    local deadline = os.clock() + timeoutSec
+    local found = nil
+
+    local conn; conn = root.DescendantAdded:Connect(function(inst)
+        if inst.Name == "Wandering Trader" then
+            found = inst
+        end
+    end)
+
+    -- also poll occasionally in case DescendantAdded fired before we connected
+    while os.clock() < deadline and not found do
+        task.wait(0.2)
+        found = findTraderNPCPath()
+    end
+
+    if conn then conn:Disconnect() end
+    return found
 end
 
 local function formatV3(v)
@@ -174,37 +209,49 @@ local function fallbackSpawnPoints()
 end
 
 local function fetchStock(timeoutSec)
-	local npc = findTraderNPC()
-	if not npc then return false, {}, "None", fallbackSpawnPoints() end
+    -- Only send webhook if we truly have the trader
+    local npc = waitForTraderNPC(6)
+    if not npc then
+        print("[TraderHopper] No trader found after waiting.")
+        return false, {}, "None", nil
+    end
 
-	local locationStr = formatV3(npc:GetPivot().Position)
-	local stock, done = nil, false
+    local locationStr = (function()
+        local cf = npc:GetPivot()
+        local p = cf and cf.Position
+        return p and string.format("(%.1f, %.1f, %.1f)", p.X, p.Y, p.Z) or "Unknown"
+    end)()
 
-	local conn
-	conn = Packets.ReceiveStock.listen(function(payload)
-		local out = {}
-		for _, v in payload do
-			local itemName = v.name
-			local amount   = tonumber(v.amount) or 0
-			local cost     = traderData.items[itemName] and traderData.items[itemName].cost or nil
-			table.insert(out, { name = itemName, amount = amount, cost = cost })
-		end
-		stock, done = out, true
-		if conn and conn.Disconnect then conn:Disconnect() end
-	end)
+    local stock, done = nil, false
+    local conn
+    conn = Packets.ReceiveStock.listen(function(payload)
+        local out = {}
+        for _, v in payload do
+            local itemName = v.name
+            local amount   = tonumber(v.amount) or 0
+            local cost     = traderData.items[itemName] and traderData.items[itemName].cost or nil
+            table.insert(out, { name = itemName, amount = amount, cost = cost })
+        end
+        stock, done = out, true
+        if conn and conn.Disconnect then conn:Disconnect() end
+    end)
 
-	Packets.RequestStock.send()
+    Packets.RequestStock.send()
 
-	local t0 = os.clock()
-	timeoutSec = timeoutSec or 5
-	while not done and (os.clock() - t0) < timeoutSec do
-		task.wait()
-	end
-	if conn and conn.Disconnect then conn:Disconnect() end
+    local t0 = os.clock()
+    timeoutSec = timeoutSec or 5
+    while not done and (os.clock() - t0) < timeoutSec do
+        task.wait()
+    end
+    if conn and conn.Disconnect then conn:Disconnect() end
 
-	return true, stock or {}, locationStr
+    if not stock then
+        print("[TraderHopper] Trader present but no stock payload received (timeout).")
+        stock = {}
+    end
+
+    return true, stock, locationStr, nil
 end
-
 -- =============== Webhook ===================
 local function sendTraderWebhook(stock, locationStr, serverInfo)
 	if not stock or #stock == 0 then return end
