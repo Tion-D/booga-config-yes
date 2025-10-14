@@ -16,6 +16,7 @@ local Players = game:GetService("Players")
 local RS = game:GetService("ReplicatedStorage")
 local Http = game:GetService("HttpService")
 local PathfindingService = game:GetService("PathfindingService")
+local RunService = game:GetService("RunService")
 local LP = Players.LocalPlayer
 
 local Events = RS:WaitForChild("Events")
@@ -62,18 +63,42 @@ local function setMaxSlope(enabled)
 	end
 end
 
-local function showGameplayUI()
+local function hardHideSpawnGuiFor(ms)
     local SpawnGui = PG:FindFirstChild("SpawnGui")
     local MainGui = PG:FindFirstChild("MainGui")
-    local Topbar  = PG:FindFirstChild("Topbar")
-    if SpawnGui then SpawnGui.Enabled = false end
+    local Topbar = PG:FindFirstChild("Topbar")
     if MainGui then MainGui.Enabled = true end
-    if Topbar then Topbar.Enabled = true  end
-    for _, ui in ipairs(PG:GetChildren()) do
-        if ui:IsA("ScreenGui") and ui.Enabled and ui.Name:lower():find("spawn") then
-            ui.Enabled = false
-        end
+    if Topbar then Topbar.Enabled  = true end
+    if SpawnGui then
+        SpawnGui.Enabled = false
+        SpawnGui:GetPropertyChangedSignal("Enabled"):Connect(function()
+            if SpawnGui.Enabled then SpawnGui.Enabled = false end
+        end)
     end
+    local t0 = os.clock()
+    while (os.clock() - t0) < (ms/1000) do
+        if MainGui and not MainGui.Enabled then MainGui.Enabled = true end
+        if Topbar  and not Topbar.Enabled  then Topbar.Enabled  = true end
+        if SpawnGui and SpawnGui.Enabled then SpawnGui.Enabled = false end
+        RunService.RenderStepped:Wait()
+    end
+end
+
+local function ensureSpawned_decompAware(useBed)
+    if not LP:GetAttribute("hasSpawned") then
+        pcall(function() Events.SpawnFirst:InvokeServer(useBed or false) end)
+        hardHideSpawnGuiFor(2500)
+    else
+        hardHideSpawnGuiFor(1000)
+    end
+    LP:GetAttributeChangedSignal("hasSpawned"):Connect(function()
+        if LP:GetAttribute("hasSpawned") then
+            hardHideSpawnGuiFor(1500)
+        end
+    end)
+    local char = LP.Character or LP.CharacterAdded:Wait()
+    if char then char:WaitForChild("Humanoid", 10) end
+    return true
 end
 
 local function sendTraderWebhook(stock, locationStr, serverInfo)
@@ -171,22 +196,6 @@ local function tryFirePrompt(npc)
 	if prompt and typeof(fireproximityprompt)=="function" then pcall(fireproximityprompt,prompt) end
 end
 
-local function ensureSpawned(fromBed)
-    if LP:GetAttribute("hasSpawned") then
-        showGameplayUI()
-        return true
-    end
-    local ok, res = pcall(function()
-        return Events.SpawnFirst:InvokeServer(fromBed or false)
-    end)
-    if not ok or res == nil then return false end
-    local char = LP.Character or LP.CharacterAdded:Wait()
-    if not char then return false end
-    char:WaitForChild("Humanoid", 10)
-    showGameplayUI()
-    return true
-end
-
 local function forceRespawn()
     local c = LP.Character
     local h = c and c:FindFirstChildOfClass("Humanoid")
@@ -195,7 +204,7 @@ local function forceRespawn()
     end
     LP.CharacterAdded:Wait()
     task.wait(0.25)
-    showGameplayUI()
+    ensureSpawned_decompAware(false)
 end
 
 local function getHRP(char) return char and char:FindFirstChild("HumanoidRootPart") end
@@ -323,9 +332,9 @@ local function getCurrentServerInfo()
 end
 
 markVisited(game.JobId)
-showGameplayUI()
+
 local function navigateThenFetch()
-	if not ensureSpawned(false) then return false,{}, "Unknown" end
+	if not ensureSpawned_decompAware(false) then return false,{}, "Unknown" end
 	local char=LP.Character or LP.CharacterAdded:Wait()
 	local hum=char:WaitForChild("Humanoid")
 	hum.Died:Once(function() task.spawn(function() LP.CharacterAdded:Wait(); task.wait(0.5); navigateThenFetch() end) end)
