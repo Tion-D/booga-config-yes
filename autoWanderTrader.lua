@@ -85,21 +85,25 @@ local function hardHideSpawnGuiFor(ms)
     end
 end
 
-local function ensureSpawned_decompAware(useBed)
-    if not LP:GetAttribute("hasSpawned") then
-        pcall(function() Events.SpawnFirst:InvokeServer(useBed or false) end)
-        hardHideSpawnGuiFor(2500)
-    else
-        hardHideSpawnGuiFor(1000)
-    end
-    LP:GetAttributeChangedSignal("hasSpawned"):Connect(function()
-        if LP:GetAttribute("hasSpawned") then
-            hardHideSpawnGuiFor(1500)
-        end
-    end)
-    local char = LP.Character or LP.CharacterAdded:Wait()
-    if char then char:WaitForChild("Humanoid", 10) end
-    return true
+local function ensureSpawned(fromBed)
+	local ok, res = pcall(function()
+		return game:GetService("ReplicatedStorage").Events.SpawnFirst:InvokeServer(fromBed or false)
+	end)
+	if not ok or res == nil then 
+		return false 
+	end
+	return true
+end
+
+local function getTraderTimeLeft()
+    local npc = findTraderNPCStrict()
+    if not npc then return nil end
+    local spawnTime = npc:GetAttribute("spawnTime")
+    if not spawnTime then return nil end
+    local now = Clock.getServerTime and Clock.getServerTime() or os.time()
+    local left = 1800 - (now - spawnTime)
+    if left < 0 then left = 0 end
+    return string.format("%dm %02ds", math.floor(left/60), left % 60), left
 end
 
 local function sendTraderWebhook(stock, locationStr, serverInfo)
@@ -196,16 +200,7 @@ local function findTraderNPCStrict()
 	for _, d in ipairs(root:GetDescendants()) do if d.Name=="Wandering Trader" then return d end end
 	return nil
 end
-local function getTraderTimeLeft()
-    local npc = findTraderNPCStrict()
-    if not npc then return nil end
-    local spawnTime = npc:GetAttribute("spawnTime")
-    if not spawnTime then return nil end
-    local now = Clock.getServerTime and Clock.getServerTime() or os.time()
-    local left = 1800 - (now - spawnTime)
-    if left < 0 then left = 0 end
-    return string.format("%dm %02ds", math.floor(left/60), left % 60), left
-end
+
 local function tryFirePrompt(npc)
 	local prompt
 	for _, d in ipairs(npc:GetDescendants()) do if d:IsA("ProximityPrompt") then prompt=d break end end
@@ -220,7 +215,7 @@ local function forceRespawn()
     end
     LP.CharacterAdded:Wait()
     task.wait(0.25)
-    ensureSpawned_decompAware(false)
+    ensureSpawned(false)
 end
 
 local function getHRP(char) return char and char:FindFirstChild("HumanoidRootPart") end
@@ -350,7 +345,7 @@ end
 markVisited(game.JobId)
 
 local function navigateThenFetch()
-	if not ensureSpawned_decompAware(false) then return false,{}, "Unknown" end
+	if not ensureSpawned(false) then return false,{}, "Unknown" end
 	local char=LP.Character or LP.CharacterAdded:Wait()
 	local hum=char:WaitForChild("Humanoid")
 	hum.Died:Once(function() task.spawn(function() LP.CharacterAdded:Wait(); task.wait(0.5); navigateThenFetch() end) end)
