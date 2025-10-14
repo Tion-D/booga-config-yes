@@ -4,6 +4,12 @@ local HOP_INTERVAL  = 5             -- seconds between hops after reporting
 local MAX_TRIES_PER_SERVER = 1
 local CACHE_FILE    = "server_cache.json"
 local CACHE_TTL     = 20 * 60       -- 20 minutes
+local ENFORCE_PROXIMITY = true   -- just warns if far; doesn't teleport
+local REQUIRED_DIST     = 20     -- studs
+local MAX_REQ_TRIES     = 5      -- how many times to send RequestStock
+local BETWEEN_REQ_WAIT  = 0.25   -- seconds between retries
+local STOCK_TIMEOUT     = 12     -- seconds max to wait for stock after first request
+
 
 -- Ping list: if any of these show up, we @everyone
 local RARE_ALERT = {
@@ -233,27 +239,75 @@ local function scrapeTraderUI()
 	return nil
 end
 
-function fetchStock(timeoutSec)
-	timeoutSec = timeoutSec or 10
+local function dist(a, b)
+	if not a or not b then return math.huge end
+	return (a - b).Magnitude
+end
 
-	-- 1) Ensure NPC exists
-	local npc = waitForTraderNPC(8)
+local function findTraderNPCStrict()
+	local root = workspace:FindFirstChild("DialogNPCs")
+	if not root then return nil end
+	local normal = root:FindFirstChild("Normal")
+	if normal then
+		local npc = normal:FindFirstChild("Wandering Trader")
+		if npc then return npc end
+	end
+	for _, d in ipairs(root:GetDescendants()) do
+		if d.Name == "Wandering Trader" then return d end
+	end
+	return nil
+end
+
+local function tryFirePrompt(npc)
+	-- If the trader has a ProximityPrompt, try to trigger it to “open shop?”
+	local prompt
+	for _, d in ipairs(npc:GetDescendants()) do
+		if d:IsA("ProximityPrompt") then
+			prompt = d; break
+		end
+	end
+	if prompt then
+		if typeof(fireproximityprompt) == "function" then
+			print("[TraderHopper][DEBUG] Firing ProximityPrompt on trader...")
+			pcall(fireproximityprompt, prompt)
+		else
+			print("[TraderHopper][DEBUG] No fireproximityprompt available in this executor.")
+		end
+	else
+		print("[TraderHopper][DEBUG] No ProximityPrompt under trader.")
+	end
+end
+
+function fetchStock(timeoutSec)
+	timeoutSec = timeoutSec or STOCK_TIMEOUT
+
+	-- 1) Find trader and print debug info
+	local npc = findTraderNPCStrict()
 	if not npc then
-		print("[TraderHopper] No Wandering Trader found after waiting.")
+		print("[TraderHopper] No Wandering Trader found (strict path).")
 		return false, {}, "None", nil
 	end
-
 	local cf = npc:GetPivot()
-	local pos = cf and cf.Position
-	local locationStr = pos and string.format("(%.1f, %.1f, %.1f)", pos.X, pos.Y, pos.Z) or "Unknown"
+	local npos = cf and cf.Position
+	local myRoot = LP.Character and LP.Character:FindFirstChild("HumanoidRootPart")
+	local mpos = myRoot and myRoot.Position
+	local d = dist(mpos, npos)
 
-	-- 2) Hook listeners BEFORE sending any request
+	print(("[TraderHopper][DEBUG] Trader path found: %s | Pos: %s | You at: %s | Dist: %.2f")
+		:format(npc:GetFullName(), npos and tostring(npos) or "nil", mpos and tostring(mpos) or "nil", d))
+
+	-- 2) Enforce proximity (warn if too far)
+	if ENFORCE_PROXIMITY and d > REQUIRED_DIST then
+		print(("[TraderHopper][DEBUG] You are %.2f studs away (> %d). Move closer, then we’ll request stock.")
+			:format(d, REQUIRED_DIST))
+	end
+
+	-- 3) Attach listeners BEFORE requests
 	local got = false
 	local stock = {}
+	local tries = 0
 
-	local recvConn, updConn
-
-	recvConn = Packets.ReceiveStock.listen(function(payload)
+	local recvConn = Packets.ReceiveStock.listen(function(payload)
 		stock = {}
 		for _, v in payload do
 			local name  = v.name
@@ -262,52 +316,92 @@ function fetchStock(timeoutSec)
 			table.insert(stock, { name = name, amount = amt, cost = cost })
 		end
 		got = true
+		print(("[TraderHopper][DEBUG] ReceiveStock fired: %d item(s)."):format(#stock))
 	end)
 
-	-- optional: if the server updates amounts after initial payload
+	-- Optional slot updates (just for debug)
+	local updConn
 	if Packets.UpdateSlot and Packets.UpdateSlot.listen then
 		updConn = Packets.UpdateSlot.listen(function(arg1)
-			-- arg1.slot, arg1.amount; try to patch our local table
-			local slotIndex = tonumber(arg1.slot)
-			if slotIndex and stock[slotIndex] then
-				stock[slotIndex].amount = tonumber(arg1.amount) or stock[slotIndex].amount
+			print(("[TraderHopper][DEBUG] UpdateSlot: slot=%s amount=%s"):format(tostring(arg1.slot), tostring(arg1.amount)))
+			local idx = tonumber(arg1.slot)
+			if idx and stock[idx] then
+				stock[idx].amount = tonumber(arg1.amount) or stock[idx].amount
 			end
 		end)
 	end
 
-	-- 3) Retry RequestStock a few times until we get something
-	local deadline = os.clock() + timeoutSec
-	local tries = 0
-	while not got and os.clock() < deadline do
+	-- 4) Try to open dialog if possible (ProximityPrompt), then send requests with debug
+	tryFirePrompt(npc)
+
+	local t0 = os.clock()
+	while not got and tries < MAX_REQ_TRIES and (os.clock() - t0) < timeoutSec do
 		tries += 1
+		print(("[TraderHopper][DEBUG] Sending RequestStock (try %d/%d)..."):format(tries, MAX_REQ_TRIES))
 		Packets.RequestStock.send()
-		for _ = 1, 20 do
-			if got then break end
-			task.wait(0.1)
+
+		-- wait a short bit after each send
+		local subT = os.clock()
+		while not got and (os.clock() - subT) < BETWEEN_REQ_WAIT do
+			task.wait(0.05)
 		end
-		if got then break end
-		-- small backoff before next attempt
-		task.wait(0.3)
 	end
 
-	-- 4) If still nothing, try scraping the UI as a last resort
+	-- 5) If still nothing, give a clear reason and try UI scrape
 	if not got then
-		local uiStock = scrapeTraderUI()
+		print("[TraderHopper][DEBUG] No ReceiveStock after retries. Reasons could be:")
+		print(" - Not within required server-side distance.")
+		print(" - Dialog not actually opened on server (ProximityPrompt / interaction required).")
+		print(" - Server gates response by a flag (e.g., recent spawn, cooldown, or anti-spam).")
+
+		-- last-resort UI scrape (if the game UI filled it anyway)
+		local uiStock = (function()
+			if not traderPanel then return nil end
+			local contents = traderPanel:FindFirstChild("Contents")
+			if not contents then return nil end
+			local out = {}
+			for _, slot in ipairs(contents:GetChildren()) do
+				if slot:IsA("Frame") then
+					local nameAttr = slot:GetAttribute("name")
+					local itemLabel = slot:FindFirstChild("ItemLabel")
+					local name = nameAttr or (itemLabel and itemLabel.Text) or nil
+					if name and name ~= "" then
+						local amt = 0
+						if itemLabel and itemLabel.Text then
+							local x = string.match(string.upper(itemLabel.Text), "X(%d+)")
+							if x then amt = tonumber(x) or 0 end
+						end
+						local cost = traderData.items[name] and traderData.items[name].cost or nil
+						table.insert(out, { name = name, amount = amt, cost = cost })
+					end
+				end
+			end
+			if #out > 0 then return out end
+			return nil
+		end)()
+
 		if uiStock then
-			stock, got = uiStock, true
+			print(("[TraderHopper][DEBUG] Scraped UI: %d item(s)."):format(#uiStock))
+			stock = uiStock
+			got = true
 		end
 	end
 
-	-- cleanup
+	-- 6) Cleanup
 	if recvConn and recvConn.Disconnect then recvConn:Disconnect() end
 	if updConn and updConn.Disconnect then updConn:Disconnect() end
 
-	if not got then
-		print("[TraderHopper] Trader present but no stock payload received (after retries).")
-		return true, {}, locationStr, nil
+	-- 7) Final outcome prints
+	if got and #stock > 0 then
+		print("[TraderHopper][DEBUG] Final stock list:")
+		for i, it in ipairs(stock) do
+			print(string.format("  [%d] %s x%d (G$%s)", i, it.name, it.amount or 0, tostring(it.cost or "?")))
+		end
+	else
+		print("[TraderHopper][DEBUG] Trader present but no stock payload received (after retries).")
 	end
 
-	return true, stock, locationStr, nil
+	return true, stock, npos and string.format("(%.1f, %.1f, %.1f)", npos.X, npos.Y, npos.Z) or "Unknown", nil
 end
 
 -- =============== Webhook ===================
