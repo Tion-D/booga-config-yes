@@ -1,4 +1,5 @@
 setthreadidentity(5)
+getgenv().webhook = "https://discord.com/api/webhooks/1427511460744925246/fV-N6lLwFgkveffOUI7hIcMN8Wk1Yahh0T_aGhnI9HTBGWNbwbWLfC8aGKXSjsTh87jC"
 local RS = game:GetService("ReplicatedStorage")
 local ClientAnimalReady = RS:WaitForChild("ClientAnimalReady")
 local old; old = hookfunction(ClientAnimalReady.FireServer, function(...)
