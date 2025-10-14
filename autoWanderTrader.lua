@@ -85,16 +85,31 @@ local function hardHideSpawnGuiFor(ms)
     end
 end
 
-local function ensureSpawned(fromBed)
-	local ok, res = pcall(function()
-		return game:GetService("ReplicatedStorage").Events.SpawnFirst:InvokeServer(fromBed or false)
-	end)
-	if not ok or res == nil then 
-		return false 
-	end
-	return true
+local function bedCooldown()
+    local last = GameUtil and GameUtil.Data and GameUtil.Data.lastSpawnFromBed or 0
+    local now = (Clock and Clock.getServerTime and Clock.getServerTime()) or os.time()
+    return 120 - (now - last)
 end
 
+local function spawnAtBed()
+    local oldHas = LocalPlayer:GetAttribute("hasSpawned")
+    LocalPlayer:SetAttribute("hasSpawned", true)
+    local ok, serverStamp = pcall(function()
+        return SpawnFirst:InvokeServer(true)
+    end)
+    if not ok or not serverStamp then
+        LocalPlayer:SetAttribute("hasSpawned", oldHas or false)
+        return false
+    end
+    if GameUtil and GameUtil.Data then
+        GameUtil.Data.lastSpawnFromBed = serverStamp
+    end
+    local Character = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
+    local Humanoid  = Character:WaitForChild("Humanoid")
+    CurrentCamera.CameraType = Enum.CameraType.Custom
+    CurrentCamera.CameraSubject = Humanoid
+    return true
+end
 local function findTraderNPCStrict()
 	local root = workspace:FindFirstChild("DialogNPCs"); if not root then return nil end
 	local normal = root:FindFirstChild("Normal"); if normal then local npc = normal:FindFirstChild("Wandering Trader"); if npc then return npc end end
@@ -346,16 +361,31 @@ end
 markVisited(game.JobId)
 
 local function navigateThenFetch()
-	if not ensureSpawned(false) then return false,{}, "Unknown" end
-	local char=LP.Character or LP.CharacterAdded:Wait()
-	local hum=char:WaitForChild("Humanoid")
-	hum.Died:Once(function() task.spawn(function() LP.CharacterAdded:Wait(); task.wait(0.5); navigateThenFetch() end) end)
-	local npc=findTraderNPCStrict()
-	if not npc then return false,{}, "None" end
-	local res=followPathTo(npc)
-	if res=="timeout" then forceRespawn(); return false,{}, "Timeout" end
-	local hadTrader,stock,loc=fetchStock(12)
-	return hadTrader,stock,loc
+    if LP:GetAttribute("hasSpawned") ~= true and bedCooldown() <= 0 then
+        spawnAtBed()
+    end
+    local char = LP.Character or LP.CharacterAdded:Wait()
+    local hum  = char:WaitForChild("Humanoid")
+
+    hum.Died:Once(function()
+        task.spawn(function()
+            LP.CharacterAdded:Wait()
+            task.wait(0.5)
+            if bedCooldown() <= 0 then
+                spawnAtBed()
+            end
+            navigateThenFetch()
+        end)
+    end)
+
+    local npc = findTraderNPCStrict()
+    if not npc then return false, {}, "None" end
+
+    local res = followPathTo(npc)
+    if res == "timeout" then return false, {}, "Timeout" end
+
+    local hadTrader, stock, loc = fetchStock(12)
+    return hadTrader, stock, loc
 end
 
 local function scanCurrentServer()
