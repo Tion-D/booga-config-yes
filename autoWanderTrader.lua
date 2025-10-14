@@ -21,6 +21,7 @@ local LP = Players.LocalPlayer
 local Events = RS:WaitForChild("Events")
 local RefreshServers = Events:WaitForChild("RefreshServers")
 local TeleportEvent = Events:WaitForChild("Teleport")
+local PG = LP:WaitForChild("PlayerGui")
 
 local Packets = require(RS.Modules.Packets)
 local traderData = require(RS.Modules.traderData)
@@ -59,6 +60,20 @@ local function setMaxSlope(enabled)
 	if LP.Character and LP.Character:FindFirstChild("Humanoid") then
 		LP.Character.Humanoid.MaxSlopeAngle = enabled and 89 or 45
 	end
+end
+
+local function showGameplayUI()
+    local SpawnGui = PG:FindFirstChild("SpawnGui")
+    local MainGui = PG:FindFirstChild("MainGui")
+    local Topbar  = PG:FindFirstChild("Topbar")
+    if SpawnGui then SpawnGui.Enabled = false end
+    if MainGui then MainGui.Enabled = true end
+    if Topbar then Topbar.Enabled = true  end
+    for _, ui in ipairs(PG:GetChildren()) do
+        if ui:IsA("ScreenGui") and ui.Enabled and ui.Name:lower():find("spawn") then
+            ui.Enabled = false
+        end
+    end
 end
 
 local function sendTraderWebhook(stock, locationStr, serverInfo)
@@ -157,17 +172,32 @@ local function tryFirePrompt(npc)
 end
 
 local function ensureSpawned(fromBed)
-	if LP:GetAttribute("hasSpawned") then return true end
-	local ok = pcall(function() return Events.SpawnFirst:InvokeServer(fromBed or false) end)
-	if not ok then return false end
-	LP.CharacterAdded:Wait()
-	return LP.Character:WaitForChild("Humanoid",10) ~= nil
+    if LP:GetAttribute("hasSpawned") then
+        showGameplayUI()
+        return true
+    end
+    local ok, res = pcall(function()
+        return Events.SpawnFirst:InvokeServer(fromBed or false)
+    end)
+    if not ok or res == nil then return false end
+    local char = LP.Character or LP.CharacterAdded:Wait()
+    if not char then return false end
+    char:WaitForChild("Humanoid", 10)
+    showGameplayUI()
+    return true
 end
+
 local function forceRespawn()
-	local c = LP.Character
-	local h = c and c:FindFirstChildOfClass("Humanoid")
-	if h and h.Health>0 then h.Health=0 else ensureSpawned(false) end
+    local c = LP.Character
+    local h = c and c:FindFirstChildOfClass("Humanoid")
+    if h and h.Health > 0 then
+        h.Health = 0
+    end
+    LP.CharacterAdded:Wait()
+    task.wait(0.25)
+    showGameplayUI()
 end
+
 local function getHRP(char) return char and char:FindFirstChild("HumanoidRootPart") end
 local function segmentSlopeDegrees(a,b)
 	local d = b-a
@@ -293,7 +323,7 @@ local function getCurrentServerInfo()
 end
 
 markVisited(game.JobId)
-
+showGameplayUI()
 local function navigateThenFetch()
 	if not ensureSpawned(false) then return false,{}, "Unknown" end
 	local char=LP.Character or LP.CharacterAdded:Wait()
@@ -325,13 +355,13 @@ if AUTO_HOP then
 			cache = { visited = {}, started = os.clock() }
 			saveCache(cache)
 			target = pickRandomUnvisited()
-			if not target then task.wait(10) continue end
+			if not target then task.wait(1) continue end
 		end
 		local prev = game.JobId
 		hopTo(target.jobId)
-		local t0=os.clock()
-		while game.JobId==prev and (os.clock()-t0)<15 do task.wait() end
-		if game.JobId==prev then continue end
+		local t0 = os.clock()
+		while game.JobId == prev and (os.clock() - t0) < 15 do task.wait() end
+		if game.JobId == prev then continue end
 		markVisited(game.JobId)
 		task.wait(1)
 		scanCurrentServer()
