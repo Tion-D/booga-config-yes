@@ -462,13 +462,15 @@ end
 markVisited(game.JobId)
 
 local function scanCurrentServer()
-	local hadTrader, stock, location = fetchStock(5)
-	if hadTrader and stock and #stock > 0 then
-		sendTraderWebhook(stock, location, getCurrentServerInfo())
-	else
-		print("[TraderHopper] No trader in this server, skipping webhook.")
-	end
+    local hadTrader, stock, location = fetchStock(12) -- keep the longer timeout you liked
+    if hadTrader and stock and #stock > 0 then
+        print(("[TraderHopper] Webhook: sending %d item(s)."):format(#stock))
+        sendTraderWebhook(stock, location, getCurrentServerInfo())
+    else
+        print("[TraderHopper] No trader/stock -> skip webhook.")
+    end
 end
+
 
 scanCurrentServer()
 
