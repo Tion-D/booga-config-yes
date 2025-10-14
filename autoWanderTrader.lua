@@ -26,6 +26,7 @@ local PG = LP:WaitForChild("PlayerGui")
 
 local Packets = require(RS.Modules.Packets)
 local traderData = require(RS.Modules.traderData)
+local Clock = require(RS.Modules.Clock)
 
 local ServerRegionValue = RS:FindFirstChild("BOOLET") and RS.BOOLET:FindFirstChild("ServerRegion")
 
@@ -33,7 +34,7 @@ local MainGui = LP:WaitForChild("PlayerGui"):WaitForChild("MainGui", 5)
 local traderPanel = MainGui and MainGui:FindFirstChild("Panels")
 traderPanel = traderPanel and traderPanel:FindFirstChild("wanderingTrader")
 
-local WalkSpeedEnabled, WalkSpeedValue, originalWalkSpeed = false, 22, nil
+local WalkSpeedEnabled, WalkSpeedValue, originalWalkSpeed = true, 16, nil
 local maxSlopeEnabled = true
 local function setWalkSpeed(enabled)
 	WalkSpeedEnabled = enabled
@@ -102,32 +103,37 @@ local function ensureSpawned_decompAware(useBed)
 end
 
 local function sendTraderWebhook(stock, locationStr, serverInfo)
-	if not stock or #stock == 0 then return end
-	local rareFound = false
-	local lines = {}
-	for _, it in ipairs(stock) do
-		table.insert(lines, string.format("- %s x%d (G$%s)", it.name, it.amount or 0, tostring(it.cost or "?")))
-		if RARE_ALERT[it.name] then rareFound = true end
-	end
-	local region  = (ServerRegionValue and ServerRegionValue.Value) or (serverInfo and serverInfo.region) or "Unknown"
-	local placeId, jobId = game.PlaceId, game.JobId
-	local payload = {
-		content = rareFound and "@everyone" or nil,
-		embeds = {{
-			title = "Wandering Trader Found",
-			description = table.concat(lines, "\n"),
-			color = 3066993,
-			fields = {
-				{ name = "Region", value = tostring(region), inline = true },
-				{ name = "Players", value = tostring(serverInfo and serverInfo.players or "?"), inline = true },
-				{ name = "Trader Location", value = locationStr or "Unknown", inline = false },
-				{ name = "copy paste this to ur browser", value = "roblox://placeID="..placeId.."&gameInstanceId="..jobId, inline = false },
-			}
-		}}
-	}
-	if not request then return end
-	local ok, res = pcall(request, {Url=WEBHOOK_URL, Method="POST", Headers={["Content-Type"]="application/json"}, Body=Http:JSONEncode(payload)})
-	if not ok or not res then return end
+    if not stock or #stock == 0 then return end
+    local rareFound = false
+    local lines = {}
+    for _, it in ipairs(stock) do
+        table.insert(lines, string.format("- %s x%d (G$%s)", it.name, it.amount or 0, tostring(it.cost or "?")))
+        if RARE_ALERT[it.name] then rareFound = true end
+    end
+    local timeLeftStr = (function()
+        local tl = getTraderTimeLeft()
+        return tl and tl or "Unknown"
+    end)()
+    local region  = (ServerRegionValue and ServerRegionValue.Value) or (serverInfo and serverInfo.region) or "Unknown"
+    local placeId, jobId = game.PlaceId, game.JobId
+    local payload = {
+        content = rareFound and "@everyone" or nil,
+        embeds = {{
+            title = "Wandering Trader Found",
+            description = table.concat(lines, "\n"),
+            color = 3066993,
+            fields = {
+                { name = "Region", value = tostring(region), inline = true },
+                { name = "Players", value = tostring(serverInfo and serverInfo.players or "?"), inline = true },
+                { name = "Time Left", value = timeLeftStr, inline = true },
+                { name = "Trader Location", value = locationStr or "Unknown", inline = false },
+                { name = "copy paste this to ur browser", value = "roblox://placeID="..placeId.."&gameInstanceId="..jobId, inline = false },
+            }
+        }}
+    }
+    if not request then return end
+    local ok, res = pcall(request, {Url=WEBHOOK_URL, Method="POST", Headers={["Content-Type"]="application/json"}, Body=Http:JSONEncode(payload)})
+    if not ok or not res then return end
 end
 
 local function safefile(name) return pcall(function() return isfile(name) end) and isfile(name) end
@@ -189,6 +195,16 @@ local function findTraderNPCStrict()
 	local normal = root:FindFirstChild("Normal"); if normal then local npc = normal:FindFirstChild("Wandering Trader"); if npc then return npc end end
 	for _, d in ipairs(root:GetDescendants()) do if d.Name=="Wandering Trader" then return d end end
 	return nil
+end
+local function getTraderTimeLeft()
+    local npc = findTraderNPCStrict()
+    if not npc then return nil end
+    local spawnTime = npc:GetAttribute("spawnTime")
+    if not spawnTime then return nil end
+    local now = Clock.getServerTime and Clock.getServerTime() or os.time()
+    local left = 1800 - (now - spawnTime)
+    if left < 0 then left = 0 end
+    return string.format("%dm %02ds", math.floor(left/60), left % 60), left
 end
 local function tryFirePrompt(npc)
 	local prompt
