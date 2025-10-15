@@ -93,19 +93,19 @@ local function bedCooldown()
 end
 
 local function spawnAtBed()
-    local oldHas = LocalPlayer:GetAttribute("hasSpawned")
-    LocalPlayer:SetAttribute("hasSpawned", true)
+    local oldHas = LP:GetAttribute("hasSpawned")
+    LP:SetAttribute("hasSpawned", true)
     local ok, serverStamp = pcall(function()
         return SpawnFirst:InvokeServer(true)
     end)
     if not ok or not serverStamp then
-        LocalPlayer:SetAttribute("hasSpawned", oldHas or false)
+        LP:SetAttribute("hasSpawned", oldHas or false)
         return false
     end
     if GameUtil and GameUtil.Data then
         GameUtil.Data.lastSpawnFromBed = serverStamp
     end
-    local Character = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
+    local Character = LP.Character or LP.CharacterAdded:Wait()
     local Humanoid  = Character:WaitForChild("Humanoid")
     CurrentCamera.CameraType = Enum.CameraType.Custom
     CurrentCamera.CameraSubject = Humanoid
