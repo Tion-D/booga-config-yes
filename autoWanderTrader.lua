@@ -14,6 +14,7 @@ local lastFoundTrader = false
 local ARRIVE_RADIUS = 10
 local webhookSentForJob = {}
 local shouldHopNow = false
+local MAX_SERVER_PLAYERS = 50
 
 local RARE_ALERT = {["Twin Scythe"]=true,["Spirit Key"]=true,["Secret Class"]=true}
 
@@ -195,19 +196,28 @@ local function parseServers(buf)
 	end
 	return list
 end
+
 local function pickRandomUnvisited()
 	clearCacheIfExpired()
 	local currentJob = game.JobId
 	local ok, buf = pcall(function() return RefreshServers:InvokeServer() end)
 	if not ok or not buf then return nil end
+
 	local servers = parseServers(buf)
 	local choices = {}
+
 	for _, s in ipairs(servers) do
-		if s.jobId ~= currentJob and not cache.visited[s.jobId] then table.insert(choices, s) end
+		if s.jobId ~= currentJob and not cache.visited[s.jobId] then
+			if not s.players or s.players < MAX_SERVER_PLAYERS then
+				table.insert(choices, s)
+			end
+		end
 	end
-	if #choices==0 then return nil end
-	return choices[math.random(1,#choices)]
+
+	if #choices == 0 then return nil end
+	return choices[math.random(1, #choices)]
 end
+
 local function hopTo(jobId)
 	if not jobId or jobId=="" then return end
 	markVisited(game.JobId)
