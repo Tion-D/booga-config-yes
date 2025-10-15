@@ -34,6 +34,23 @@ local ServerRegionValue = RS:FindFirstChild("BOOLET") and RS.BOOLET:FindFirstChi
 local MainGui = LP:WaitForChild("PlayerGui"):WaitForChild("MainGui", 5)
 local traderPanel = MainGui and MainGui:FindFirstChild("Panels")
 traderPanel = traderPanel and traderPanel:FindFirstChild("wanderingTrader")
+local CurrentCamera = workspace.CurrentCamera
+workspace:GetPropertyChangedSignal("CurrentCamera"):Connect(function()
+    CurrentCamera = workspace.CurrentCamera
+end)
+
+local function setCameraToHumanoid(hum)
+    local deadline = os.clock() + 3
+    while os.clock() < deadline do
+        if CurrentCamera and hum then
+            CurrentCamera.CameraType = Enum.CameraType.Custom
+            CurrentCamera.CameraSubject = hum
+            return true
+        end
+        RunService.Heartbeat:Wait()
+    end
+    return false
+end
 
 local WalkSpeedEnabled, WalkSpeedValue, originalWalkSpeed = true, 16, nil
 local maxSlopeEnabled = true
@@ -95,6 +112,7 @@ end
 local function spawnAtBed()
     local oldHas = LP:GetAttribute("hasSpawned")
     LP:SetAttribute("hasSpawned", true)
+
     local ok, serverStamp = pcall(function()
         return SpawnFirst:InvokeServer(true)
     end)
@@ -102,15 +120,20 @@ local function spawnAtBed()
         LP:SetAttribute("hasSpawned", oldHas or false)
         return false
     end
+
     if GameUtil and GameUtil.Data then
         GameUtil.Data.lastSpawnFromBed = serverStamp
     end
-    local Character = LP.Character or LP.CharacterAdded:Wait()
-    local Humanoid  = Character:WaitForChild("Humanoid")
-    CurrentCamera.CameraType = Enum.CameraType.Custom
-    CurrentCamera.CameraSubject = Humanoid
+
+    local char = LP.Character or LP.CharacterAdded:Wait()
+    local hum  = char and char:WaitForChild("Humanoid", 10)
+    if not hum then return false end
+
+    setCameraToHumanoid(hum)
+
     return true
 end
+
 local function findTraderNPCStrict()
 	local root = workspace:FindFirstChild("DialogNPCs"); if not root then return nil end
 	local normal = root:FindFirstChild("Normal"); if normal then local npc = normal:FindFirstChild("Wandering Trader"); if npc then return npc end end
