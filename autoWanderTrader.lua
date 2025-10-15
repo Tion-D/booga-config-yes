@@ -477,7 +477,7 @@ local function moveAndJumpTo(hum, hrp, targetPos)
         hum:MoveTo(targetPos)
         if shortLedgeAhead(hrp) then hum.Jump = true end
         if os.clock() - lastCheck >= 0.4 then
-            if nearlyStopped(hrp.Position, lastPos) then
+            if hrp and hrp.Position and nearlyStopped(hrp.Position, lastPos) then
                 stuckCount += 1
                 hum.Jump = true
                 hrp.AssemblyLinearVelocity += (delta.Unit * 8) + Vector3.new(0, 3, 0)
