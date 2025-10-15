@@ -1,3 +1,107 @@
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Players = game:GetService("Players")
+local LocalPlayer = Players.LocalPlayer
+
+local AUTO_SPAWN_ENABLED = true
+local SPAWN_FROM_BED = false
+local SPAWN_DELAY = 0.5
+
+local function waitForGameLoad()
+    local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
+    local SpawnGui = PlayerGui:WaitForChild("SpawnGui", 10)
+    if not SpawnGui then
+        warn("SpawnGui not found!")
+        return false
+    end
+    local Events = ReplicatedStorage:WaitForChild("Events", 10)
+    if not Events then
+        warn("Events folder not found!")
+        return false
+    end
+    local SpawnFirst = Events:WaitForChild("SpawnFirst", 10)
+    if not SpawnFirst then
+        warn("SpawnFirst event not found!")
+        return false
+    end
+    return true, SpawnGui, SpawnFirst
+end
+
+local function autoSpawn()
+    print("[Auto Spawn] Initializing...")
+    if LocalPlayer:GetAttribute("hasSpawned") then
+        print("[Auto Spawn] Already spawned!")
+        return
+    end
+
+    local success, SpawnGui, SpawnFirst = waitForGameLoad()
+    if not success then
+        warn("[Auto Spawn] Failed to load game elements!")
+        return
+    end
+
+    task.wait(SPAWN_DELAY)
+
+    if LocalPlayer:GetAttribute("hasSpawned") then
+        print("[Auto Spawn] Already spawned during delay!")
+        return
+    end
+
+    print("[Auto Spawn] Attempting to spawn...")
+    local spawnSuccess, spawnResult = pcall(function()
+        return SpawnFirst:InvokeServer(SPAWN_FROM_BED)
+    end)
+
+    if spawnSuccess and spawnResult then
+        print("[Auto Spawn] Successfully spawned!")
+        LocalPlayer:SetAttribute("hasSpawned", true)
+
+        local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
+        local Camera = workspace.CurrentCamera
+
+        if SpawnGui then SpawnGui.Enabled = false end
+
+        local MainGui = PlayerGui:FindFirstChild("MainGui")
+        if MainGui then MainGui.Enabled = true end
+
+        local Topbar = PlayerGui:FindFirstChild("Topbar")
+        if Topbar then Topbar.Enabled = true end
+
+        local character = LocalPlayer.Character
+        if character then
+            local humanoid = character:WaitForChild("Humanoid", 5)
+            if humanoid then
+                Camera.CameraType = Enum.CameraType.Custom
+                Camera.CameraSubject = humanoid
+                print("[Auto Spawn] Camera fixed!")
+            end
+        end
+
+        print("[Auto Spawn] GUIs updated!")
+    else
+        warn("[Auto Spawn] Failed to spawn:", spawnResult)
+    end
+end
+
+local function onCharacterAdded(character)
+    task.wait(0.5)
+    if AUTO_SPAWN_ENABLED and not LocalPlayer:GetAttribute("hasSpawned") then
+        autoSpawn()
+    end
+end
+
+if AUTO_SPAWN_ENABLED then
+    print("[Auto Spawn] Script loaded! Auto-spawn is ENABLED")
+    LocalPlayer.CharacterAdded:Connect(onCharacterAdded)
+    if LocalPlayer.Character then
+        onCharacterAdded(LocalPlayer.Character)
+    else
+        task.wait(1)
+        autoSpawn()
+    end
+else
+    print("[Auto Spawn] Script loaded but auto-spawn is DISABLED")
+end
+
 local WEBHOOK_URL = "https://discord.com/api/webhooks/1427511460744925246/fV-N6lLwFgkveffOUI7hIcMN8Wk1Yahh0T_aGhnI9HTBGWNbwbWLfC8aGKXSjsTh87jC"
 local AUTO_HOP = true
 local HOP_INTERVAL = 5
@@ -11,19 +115,15 @@ local BETWEEN_REQ_WAIT = 0.25
 local STOCK_TIMEOUT = 12
 local scanBusy = false
 local lastFoundTrader = false
-local ARRIVE_RADIUS = 10
-local webhookSentForJob = {}
-local shouldHopNow = false
 local MAX_SERVER_PLAYERS = 50
+local webhookSentServers = {}
 
-local RARE_ALERT = {["Twin Scythe"]=true,["Spirit Key"]=true,["Secret Class"]=true}
-
-local Players = game:GetService("Players")
+local Players2 = game:GetService("Players")
 local RS = game:GetService("ReplicatedStorage")
 local Http = game:GetService("HttpService")
 local PathfindingService = game:GetService("PathfindingService")
 local RunService = game:GetService("RunService")
-local LP = Players.LocalPlayer
+local LP = Players2.LocalPlayer
 
 local Events = RS:WaitForChild("Events")
 local RefreshServers = Events:WaitForChild("RefreshServers")
@@ -46,6 +146,30 @@ workspace:GetPropertyChangedSignal("CurrentCamera"):Connect(function()
     CurrentCamera = workspace.CurrentCamera
 end)
 
+local TeleportService = game:GetService("TeleportService")
+local failedJobIds, lastTeleportFailed = {}, false
+TeleportService.TeleportInitFailed:Connect(function(_, result, msg)
+    warn("[Hop] Teleport failed:", result, msg)
+    lastTeleportFailed = true
+end)
+
+local function waitForGameLoaded2()
+    local ok = RS:FindFirstChild("GameLoaded")
+    if ok then
+        if ok:IsA("BindableEvent") then
+            ok.Event:Wait()
+        else
+            repeat task.wait() until ok.Parent
+        end
+    else
+        ok = RS:WaitForChild("GameLoaded", 15)
+        if ok and ok:IsA("BindableEvent") then
+            ok.Event:Wait()
+        end
+    end
+end
+waitForGameLoaded2()
+
 local function setCameraToHumanoid(hum)
     local deadline = os.clock() + 3
     while os.clock() < deadline do
@@ -60,34 +184,28 @@ local function setCameraToHumanoid(hum)
 end
 
 local WalkSpeedEnabled, WalkSpeedValue, originalWalkSpeed = true, 16, nil
-local maxSlopeEnabled = true
 local function setWalkSpeed(enabled)
-	WalkSpeedEnabled = enabled
-	if LP.Character then
-		local humanoid = LP.Character:FindFirstChildOfClass("Humanoid")
-		if humanoid then
-			if not originalWalkSpeed then originalWalkSpeed = humanoid.WalkSpeed end
-			humanoid.WalkSpeed = enabled and WalkSpeedValue or originalWalkSpeed
-		end
-	end
+    WalkSpeedEnabled = enabled
+    if LP.Character then
+        local humanoid = LP.Character:FindFirstChildOfClass("Humanoid")
+        if humanoid then
+            if not originalWalkSpeed then originalWalkSpeed = humanoid.WalkSpeed end
+            humanoid.WalkSpeed = enabled and WalkSpeedValue or originalWalkSpeed
+        end
+    end
 end
+
 local oldNewIndex
 oldNewIndex = hookmetamethod(game, "__newindex", function(self, idx, val)
-	if not checkcaller() then
-		local char = LP.Character
-		local hum = char and char:FindFirstChildOfClass("Humanoid")
-		if WalkSpeedEnabled and hum and self == hum and idx == "WalkSpeed" then
-			val = WalkSpeedValue
-		end
-	end
-	return oldNewIndex(self, idx, val)
+    if not checkcaller() then
+        local char = LP.Character
+        local hum = char and char:FindFirstChildOfClass("Humanoid")
+        if WalkSpeedEnabled and hum and self == hum and idx == "WalkSpeed" then
+            val = WalkSpeedValue
+        end
+    end
+    return oldNewIndex(self, idx, val)
 end)
-local function setMaxSlope(enabled)
-	maxSlopeEnabled = enabled
-	if LP.Character and LP.Character:FindFirstChild("Humanoid") then
-		LP.Character.Humanoid.MaxSlopeAngle = enabled and 89 or 45
-	end
-end
 
 local function hardHideSpawnGuiFor(ms)
     local SpawnGui = PG:FindFirstChild("SpawnGui")
@@ -110,11 +228,124 @@ local function hardHideSpawnGuiFor(ms)
     end
 end
 
+local function safefile(name) return pcall(function() return isfile(name) end) and isfile(name) end
+local function loadCache()
+    if safefile(CACHE_FILE) then
+        local ok, data = pcall(function() return Http:JSONDecode(readfile(CACHE_FILE)) end)
+        if ok and typeof(data)=="table" and data.visited and data.started then return data end
+    end
+    return { visited = {}, started = os.clock() }
+end
+local function saveCache(cache) writefile(CACHE_FILE, Http:JSONEncode(cache)) end
+local cache = loadCache()
+local function clearCacheIfExpired()
+    if os.clock() - (cache.started or 0) >= CACHE_TTL then
+        cache = { visited = {}, started = os.clock() }
+        saveCache(cache)
+    end
+end
+local function markVisited(jobId)
+    if jobId and jobId~="" then cache.visited[jobId]=true; saveCache(cache) end
+end
+local function isGuid36(s) return typeof(s)=="string" and #s==36 and s:match("^%x%x%x%x%x%x%x%x%-%x%x%x%x%-%x%x%x%x%-%x%x%x%x%-%x%x%x%x%x%x%x%x%x%x%x%x$") end
+local function parseServers(buf)
+    local list, seen = {}, {}
+    local totalLen = (buffer.len and buffer.len(buf)) or 0
+    if totalLen <= 0 then
+        local i=0
+        while true do local ok = pcall(buffer.readu8, buf, i); if not ok then break end; i+=1 end
+        totalLen = i
+    end
+    for i = 0, math.max(0, totalLen-36) do
+        local ok, s = pcall(buffer.readstring, buf, i, 36)
+        if ok and isGuid36(s) and not seen[s] then seen[s]=true; table.insert(list,{jobId=s}) end
+    end
+    return list
+end
+local function pickRandomUnvisited()
+    clearCacheIfExpired()
+    local currentJob = game.JobId
+    local ok, buf = pcall(function() return RefreshServers:InvokeServer() end)
+    if not ok or not buf then return nil end
+    local servers = parseServers(buf)
+    local choices = {}
+    for _, s in ipairs(servers) do
+        if s.jobId ~= currentJob and not cache.visited[s.jobId] and not failedJobIds[s.jobId] then table.insert(choices, s) end
+    end
+    if #choices==0 then return nil end
+    return choices[math.random(1,#choices)]
+end
+local function hopTo(jobId)
+    if not jobId or jobId == "" or failedJobIds[jobId] then return false, "bad" end
+    lastTeleportFailed = false
+    markVisited(game.JobId)
+    TeleportEvent:FireServer(jobId)
+    local prev, t0 = game.JobId, os.clock()
+    while os.clock() - t0 < 8 do
+        if lastTeleportFailed then failedJobIds[jobId] = true; return false, "failed" end
+        if game.JobId ~= prev then return true, "ok" end
+        task.wait()
+    end
+    failedJobIds[jobId] = true
+    return false, "timeout"
+end
+
+local function waitForSpawned(timeout)
+    timeout = timeout or 25
+    local t0 = os.clock()
+    while os.clock() - t0 < timeout do
+        if LP:GetAttribute("hasSpawned") then return true end
+        task.wait(0.2)
+    end
+    return false
+end
+
+local function hopToNonFullServer(maxAttempts)
+    maxAttempts = maxAttempts or 6
+    for _ = 1, maxAttempts do
+        local target = pickRandomUnvisited()
+        if not target then
+            cache = { visited = {}, started = os.clock() }
+            saveCache(cache)
+            target = pickRandomUnvisited()
+        end
+        if not target then
+            task.wait(1)
+        else
+            local prev = game.JobId
+            hopTo(target.jobId)
+
+            local t0 = os.clock()
+            while game.JobId == prev and (os.clock() - t0) < 15 do task.wait() end
+            if game.JobId == prev then
+                task.wait(0.5)
+            else
+                markVisited(game.JobId)
+                if #Players2:GetPlayers() >= MAX_SERVER_PLAYERS then
+                    task.wait(0.25)
+                else
+                    waitForSpawned(25)
+                    return true
+                end
+            end
+        end
+    end
+    return false
+end
+
+local function dist(a,b) if not a or not b then return math.huge end return (a-b).Magnitude end
+
+local function tryFirePrompt(npc)
+    local prompt
+    for _, d in ipairs(npc:GetDescendants()) do if d:IsA("ProximityPrompt") then prompt=d break end end
+    if prompt and typeof(fireproximityprompt)=="function" then pcall(fireproximityprompt,prompt) end
+end
+
 local function findTraderNPCStrict()
-	local root = workspace:FindFirstChild("DialogNPCs"); if not root then return nil end
-	local normal = root:FindFirstChild("Normal"); if normal then local npc = normal:FindFirstChild("Wandering Trader"); if npc then return npc end end
-	for _, d in ipairs(root:GetDescendants()) do if d.Name=="Wandering Trader" then return d end end
-	return nil
+    local root = workspace:FindFirstChild("DialogNPCs"); if not root then return nil end
+    local normal = root:FindFirstChild("Normal"); if normal then local npc = normal:FindFirstChild("Wandering Trader"); if npc then return npc end end
+    for _, d in ipairs(root:GetDescendants()) do if d.Name=="Wandering Trader" then return d end end
+    return nil
 end
 
 local function getTraderTimeLeft()
@@ -128,6 +359,7 @@ local function getTraderTimeLeft()
     return string.format("%dm %02ds", math.floor(left/60), left % 60), left
 end
 
+local RARE_ALERT = {["Twin Scythe"]=true,["Spirit Key"]=true,["Secret Class"]=true}
 local function sendTraderWebhook(stock, locationStr, serverInfo)
     if not stock or #stock == 0 then return end
     local rareFound = false
@@ -158,120 +390,24 @@ local function sendTraderWebhook(stock, locationStr, serverInfo)
         }}
     }
     if not request then return end
-    local ok, res = pcall(request, {Url=WEBHOOK_URL, Method="POST", Headers={["Content-Type"]="application/json"}, Body=Http:JSONEncode(payload)})
-    if not ok or not res then return end
+    pcall(request, {Url=WEBHOOK_URL, Method="POST", Headers={["Content-Type"]="application/json"}, Body=Http:JSONEncode(payload)})
 end
-
-local function safefile(name) return pcall(function() return isfile(name) end) and isfile(name) end
-local function loadCache()
-	if safefile(CACHE_FILE) then
-		local ok, data = pcall(function() return Http:JSONDecode(readfile(CACHE_FILE)) end)
-		if ok and typeof(data)=="table" and data.visited and data.started then return data end
-	end
-	return { visited = {}, started = os.clock() }
-end
-local function saveCache(cache) writefile(CACHE_FILE, Http:JSONEncode(cache)) end
-local cache = loadCache()
-local function clearCacheIfExpired()
-	if os.clock() - (cache.started or 0) >= CACHE_TTL then
-		cache = { visited = {}, started = os.clock() }
-		saveCache(cache)
-	end
-end
-local function markVisited(jobId)
-	if jobId and jobId~="" then cache.visited[jobId]=true; saveCache(cache) end
-end
-local function isGuid36(s) return typeof(s)=="string" and #s==36 and s:match("^%x%x%x%x%x%x%x%x%-%x%x%x%x%-%x%x%x%x%-%x%x%x%x%-%x%x%x%x%x%x%x%x%x%x%x%x$") end
-local function parseServers(buf)
-	local list, seen = {}, {}
-	local totalLen = (buffer.len and buffer.len(buf)) or 0
-	if totalLen <= 0 then
-		local i=0
-		while true do local ok = pcall(buffer.readu8, buf, i); if not ok then break end; i+=1 end
-		totalLen = i
-	end
-	for i = 0, math.max(0, totalLen-36) do
-		local ok, s = pcall(buffer.readstring, buf, i, 36)
-		if ok and isGuid36(s) and not seen[s] then seen[s]=true; table.insert(list,{jobId=s}) end
-	end
-	return list
-end
-
-local function pickRandomUnvisited()
-	clearCacheIfExpired()
-	local currentJob = game.JobId
-	local ok, buf = pcall(function() return RefreshServers:InvokeServer() end)
-	if not ok or not buf then return nil end
-
-	local servers = parseServers(buf)
-	local choices = {}
-
-	for _, s in ipairs(servers) do
-		if s.jobId ~= currentJob and not cache.visited[s.jobId] then
-			if not s.players or s.players < MAX_SERVER_PLAYERS then
-				table.insert(choices, s)
-			end
-		end
-	end
-
-	if #choices == 0 then return nil end
-	return choices[math.random(1, #choices)]
-end
-
-local function hopTo(jobId)
-	if not jobId or jobId=="" then return end
-	markVisited(game.JobId)
-	TeleportEvent:FireServer(jobId)
-end
-
-local function dist(a,b) if not a or not b then return math.huge end return (a-b).Magnitude end
-
-local function tryFirePrompt(npc)
-	local prompt
-	for _, d in ipairs(npc:GetDescendants()) do if d:IsA("ProximityPrompt") then prompt=d break end end
-	if prompt and typeof(fireproximityprompt)=="function" then pcall(fireproximityprompt,prompt) end
-end
-local function ensureSpawned()
-    local ok, stamp = pcall(function()
-        return SpawnFirst:InvokeServer(false)
-    end)
-    if not ok or not stamp then return false end
-
-    local char = LP.Character or LP.CharacterAdded:Wait()
-    local hum  = char and char:WaitForChild("Humanoid", 3)
-    if not hum then return false end
-
-    setCameraToHumanoid(hum)
-    hum:SetStateEnabled(Enum.HumanoidStateType.Swimming, false)
-    hum:ChangeState(Enum.HumanoidStateType.Running)
-    hum.StateChanged:Connect(function(_, new)
-        if new == Enum.HumanoidStateType.Swimming then
-            hum:ChangeState(Enum.HumanoidStateType.Running)
-        end
-    end)
-
-    return true
-end
-
-
 
 local function getHRP(char) return char and char:FindFirstChild("HumanoidRootPart") end
 local function segmentSlopeDegrees(a,b)
-	local d = b-a
-	local horiz = Vector3.new(d.X,0,d.Z).Magnitude
-	if horiz<=1e-3 then return 0 end
-	return math.abs(math.deg(math.atan2(d.Y,horiz)))
+    local d = b-a
+    local horiz = Vector3.new(d.X,0,d.Z).Magnitude
+    if horiz<=1e-3 then return 0 end
+    return math.abs(math.deg(math.atan2(d.Y,horiz)))
 end
 local MAX_ALLOWED_SLOPE = 40
 local function computePath(fromPos, toPos)
     local agent = {AgentRadius=2, AgentHeight=5, AgentCanJump=true, AgentCanClimb=true}
     local p = PathfindingService:CreatePath(agent)
     p:ComputeAsync(fromPos, toPos)
-
     if p.Status ~= Enum.PathStatus.Success then
         return { {Position = toPos} }
     end
-
     local pts = p:GetWaypoints()
     for i = 1, #pts - 1 do
         if segmentSlopeDegrees(pts[i].Position, pts[i+1].Position) > MAX_ALLOWED_SLOPE then
@@ -292,37 +428,113 @@ local function computePath(fromPos, toPos)
     return pts
 end
 
+local RAY_STEP = 3
+local MAX_STEP_HEIGHT = 3
+local NUDGE = Vector3.new(0.5, 0, 0.5)
+local function shortLedgeAhead(hrp)
+    if not hrp then return false end
+    local origin = hrp.Position + Vector3.new(0, 2, 0)
+    local dir = hrp.CFrame.LookVector
+    local params = RaycastParams.new()
+    params.FilterType = Enum.RaycastFilterType.Exclude
+    params.FilterDescendantsInstances = {hrp.Parent}
+    local low = workspace:Raycast(origin, dir * RAY_STEP, params)
+    local high = workspace:Raycast(origin + Vector3.new(0, MAX_STEP_HEIGHT, 0), dir * RAY_STEP, params)
+    return low and not high
+end
+local function nearlyStopped(a, b) return (a - b).Magnitude < 0.15 end
+local function moveAndJumpTo(hum, hrp, targetPos)
+    local arriveRadius = 2.5
+    local segDeadline = os.clock() + 8.0
+    local moveFinished = false
+    local here = hrp.Position
+    local look = Vector3.new(targetPos.X, here.Y, targetPos.Z)
+    if (look - here).Magnitude > 0.01 then
+        hrp.CFrame = CFrame.new(here, look)
+    end
+    hum:MoveTo(targetPos)
+    local conn
+    conn = hum.MoveToFinished:Connect(function()
+        moveFinished = true
+        if conn then conn:Disconnect() end
+    end)
+    local lastPos = hrp.Position
+    local lastCheck = os.clock()
+    local stuckCount = 0
+    
+    while not moveFinished and os.clock() < segDeadline do
+        local delta = (targetPos - hrp.Position)
+        if delta.Magnitude <= arriveRadius then break end
+        hum:MoveTo(targetPos)
+        if shortLedgeAhead(hrp) then hum.Jump = true end
+        if os.clock() - lastCheck >= 0.4 then
+            if nearlyStopped(hrp.Position, lastPos) then
+                stuckCount += 1
+                hum.Jump = true
+                hrp.AssemblyLinearVelocity += (delta.Unit * 8) + Vector3.new(0, 3, 0)
+                hrp.CFrame += NUDGE * 2
+                
+                if stuckCount >= 3 then
+                    hrp.CFrame += Vector3.new(0, 2, 0) + (delta.Unit * 3)
+                    stuckCount = 0
+                end
+            else
+                stuckCount = 0
+            end
+            lastPos = hrp.Position
+            lastCheck = os.clock()
+        end
+        task.wait(0.05)
+    end
+    if conn then conn:Disconnect() end
+end
 local function followPathTo(npc)
+    if not LP:GetAttribute("hasSpawned") then
+        if not waitForSpawned(25) then return "failed" end
+    end
+
     local char = LP.Character or LP.CharacterAdded:Wait()
     local hum  = char:WaitForChild("Humanoid")
     local hrp  = char:FindFirstChild("HumanoidRootPart")
     if not (hum and hrp) then return "failed" end
+    hum.AutoRotate = true
+    setWalkSpeed(true)
 
-    setWalkSpeed(true); setMaxSlope(false)
     local t0 = os.clock()
     local function alive() return hum and hum.Health > 0 end
+    local STOP_DISTANCE = 10
 
     while npc and npc.Parent and alive() do
         if os.clock() - t0 > 300 then return "timeout" end
 
         local tPos = npc:GetPivot().Position
-        if (hrp.Position - tPos).Magnitude <= ARRIVE_RADIUS then
+        local distToTrader = (hrp.Position - tPos).Magnitude
+        
+        if distToTrader <= STOP_DISTANCE then
             hum:Move(Vector3.new(), true)
+            print("[TraderHopper] Reached trader! Distance:", math.floor(distToTrader), "studs")
             return "arrived"
         end
 
         local wps = computePath(hrp.Position, tPos)
-        if not wps or #wps == 0 then task.wait(0.25) continue end
-
-        for _, w in ipairs(wps) do
-            if not alive() then break end
-            if (w.Position - tPos).Magnitude <= ARRIVE_RADIUS then
-                hum:Move(Vector3.new(), true)
-                return "arrived"
+        if not wps or #wps == 0 then
+            task.wait(0.25)
+        else
+            for _, w in ipairs(wps) do
+                if not alive() then break end
+                if segmentSlopeDegrees(hrp.Position, w.Position) > MAX_ALLOWED_SLOPE then break end
+                
+                local currentDist = (hrp.Position - tPos).Magnitude
+                if currentDist <= STOP_DISTANCE then
+                    hum:Move(Vector3.new(), true)
+                    print("[TraderHopper] Reached trader! Distance:", math.floor(currentDist), "studs")
+                    return "arrived"
+                end
+                
+                moveAndJumpTo(hum, hrp, w.Position)
+                
+                if os.clock() - t0 > 300 then return "timeout" end
             end
-            hum:MoveTo(w.Position)
-            if not hum.MoveToFinished:Wait() then break end
-            if os.clock() - t0 > 300 then return "timeout" end
         end
         task.wait(0.05)
     end
@@ -330,90 +542,89 @@ local function followPathTo(npc)
 end
 
 function fetchStock(timeoutSec)
-	timeoutSec = timeoutSec or STOCK_TIMEOUT
-	local npc = findTraderNPCStrict()
-	if not npc then return false, {}, "None", nil end
-	local cf = npc:GetPivot()
-	local npos = cf and cf.Position
-	local myRoot = LP.Character and LP.Character:FindFirstChild("HumanoidRootPart")
-	local mpos = myRoot and myRoot.Position
-	local d = dist(mpos, npos)
-	if ENFORCE_PROXIMITY and d > REQUIRED_DIST then end
-	local got=false
-	local stock={}
-	local tries=0
-	local recvConn = Packets.ReceiveStock.listen(function(payload)
-		stock={}
-		for _,v in payload do
-			local name=v.name
-			local amt=tonumber(v.amount) or 0
-			local cost=traderData.items[name] and traderData.items[name].cost or nil
-			table.insert(stock,{name=name,amount=amt,cost=cost})
-		end
-		got=true
-	end)
-	local updConn
-	if Packets.UpdateSlot and Packets.UpdateSlot.listen then
-		updConn = Packets.UpdateSlot.listen(function(arg1)
-			local idx=tonumber(arg1.slot)
-			if idx and stock[idx] then stock[idx].amount=tonumber(arg1.amount) or stock[idx].amount end
-		end)
-	end
-	local t0=os.clock()
-	while not got and tries<MAX_REQ_TRIES and (os.clock()-t0)<timeoutSec do
-		tries+=1
-		Packets.RequestStock.send()
-		local st=os.clock()
-		while not got and (os.clock()-st)<BETWEEN_REQ_WAIT do task.wait(0.05) end
-	end
-	if not got then
-		local uiStock
-		if traderPanel then
-			local contents=traderPanel:FindFirstChild("Contents")
-			if contents then
-				local out={}
-				for _,slot in ipairs(contents:GetChildren()) do
-					if slot:IsA("Frame") then
-						local nameAttr=slot:GetAttribute("name")
-						local itemLabel=slot:FindFirstChild("ItemLabel")
-						local name=nameAttr or (itemLabel and itemLabel.Text) or nil
-						if name and name~="" then
-							local amt=0
-							if itemLabel and itemLabel.Text then local x=string.match(string.upper(itemLabel.Text),"X(%d+)"); if x then amt=tonumber(x) or 0 end end
-							local cost=traderData.items[name] and traderData.items[name].cost or nil
-							table.insert(out,{name=name,amount=amt,cost=cost})
-						end
-					end
-				end
-				if #out>0 then uiStock=out end
-			end
-		end
-		if uiStock then stock=uiStock got=true end
-	end
-	if recvConn and recvConn.Disconnect then recvConn:Disconnect() end
-	if updConn and updConn.Disconnect then updConn:Disconnect() end
-	return true, stock, npos and string.format("(%.1f, %.1f, %.1f)", npos.X, npos.Y, npos.Z) or "Unknown", nil
+    timeoutSec = timeoutSec or STOCK_TIMEOUT
+    local npc = findTraderNPCStrict()
+    if not npc then return false, {}, "None", nil end
+    local cf = npc:GetPivot()
+    local npos = cf and cf.Position
+    local myRoot = LP.Character and LP.Character:FindFirstChild("HumanoidRootPart")
+    local mpos = myRoot and myRoot.Position
+    local d = dist(mpos, npos)
+    
+    print("[TraderHopper] Fetching stock from distance:", math.floor(d), "studs")
+    
+    local got=false
+    local stock={}
+    local tries=0
+    local recvConn = Packets.ReceiveStock.listen(function(payload)
+        stock={}
+        for _,v in payload do
+            local name=v.name
+            local amt=tonumber(v.amount) or 0
+            local cost=traderData.items[name] and traderData.items[name].cost or nil
+            table.insert(stock,{name=name,amount=amt,cost=cost})
+        end
+        got=true
+    end)
+    local updConn
+    if Packets.UpdateSlot and Packets.UpdateSlot.listen then
+        updConn = Packets.UpdateSlot.listen(function(arg1)
+            local idx=tonumber(arg1.slot)
+            if idx and stock[idx] then stock[idx].amount=tonumber(arg1.amount) or stock[idx].amount end
+        end)
+    end
+    local t0=os.clock()
+    while not got and tries<MAX_REQ_TRIES and (os.clock()-t0)<timeoutSec do
+        tries+=1
+        Packets.RequestStock.send()
+        local st=os.clock()
+        while not got and (os.clock()-st)<BETWEEN_REQ_WAIT do task.wait(0.05) end
+    end
+    if not got then
+        local uiStock
+        if traderPanel then
+            local contents=traderPanel:FindFirstChild("Contents")
+            if contents then
+                local out={}
+                for _,slot in ipairs(contents:GetChildren()) do
+                    if slot:IsA("Frame") then
+                        local nameAttr=slot:GetAttribute("name")
+                        local itemLabel=slot:FindFirstChild("ItemLabel")
+                        local name=nameAttr or (itemLabel and itemLabel.Text) or nil
+                        if name and name~="" then
+                            local amt=0
+                            if itemLabel and itemLabel.Text then local x=string.match(string.upper(itemLabel.Text),"X(%d+)"); if x then amt=tonumber(x) or 0 end end
+                            local cost=traderData.items[name] and traderData.items[name].cost or nil
+                            table.insert(out,{name=name,amount=amt,cost=cost})
+                        end
+                    end
+                end
+                if #out>0 then uiStock=out end
+            end
+        end
+        if uiStock then stock=uiStock got=true end
+    end
+    if recvConn and recvConn.Disconnect then recvConn:Disconnect() end
+    if updConn and updConn.Disconnect then updConn:Disconnect() end
+    return true, stock, npos and string.format("(%.1f, %.1f, %.1f)", npos.X, npos.Y, npos.Z) or "Unknown", nil
 end
 
 local function getCurrentServerInfo()
-	return {jobId=game.JobId,region=(ServerRegionValue and ServerRegionValue.Value) or "Unknown",name="Unknown",players=#Players:GetPlayers()}
+    return {jobId=game.JobId,region=(ServerRegionValue and ServerRegionValue.Value) or "Unknown",name="Unknown",players=#Players2:GetPlayers()}
 end
 
 markVisited(game.JobId)
 
 local function navigateThenFetch()
+    if not LP:GetAttribute("hasSpawned") then
+        if not waitForSpawned(25) then
+            return false, {}, "None"
+        end
+    end
+
     local char = LP.Character or LP.CharacterAdded:Wait()
     local hum  = char:WaitForChild("Humanoid")
     hum:SetStateEnabled(Enum.HumanoidStateType.Swimming, false)
-    hum.Died:Once(function()
-        task.spawn(function()
-            LP.CharacterAdded:Wait()
-            task.wait(0.25)
-            ensureSpawned()
-            navigateThenFetch()
-        end)
-    end)
-
     local npc = findTraderNPCStrict()
     if not npc then return false, {}, "None" end
 
@@ -426,8 +637,19 @@ end
 
 local function scanCurrentServer()
     if scanBusy then return lastFoundTrader end
+    
+    local currentJobId = game.JobId
+    
+    if webhookSentServers[currentJobId] then
+        print("[TraderHopper] Already sent webhook for this server, skipping...")
+        lastFoundTrader = true
+        return true
+    end
+    
     scanBusy = true
-    local ok, hadTrader, stock, location = pcall(navigateThenFetch)
+    local ok, hadTrader, stock, location = pcall(function()
+        return navigateThenFetch()
+    end)
     scanBusy = false
 
     if not ok then
@@ -437,14 +659,15 @@ local function scanCurrentServer()
     end
 
     if hadTrader and stock and #stock > 0 then
-        if not webhookSentForJob[game.JobId] then
-            webhookSentForJob[game.JobId] = true
-            lastFoundTrader = true
-            sendTraderWebhook(stock, location, getCurrentServerInfo())
-            shouldHopNow = true
-        else
-            lastFoundTrader = true
-        end
+        lastFoundTrader = true
+        print("[TraderHopper] Found trader with", #stock, "items! Sending webhook...")
+        
+        webhookSentServers[currentJobId] = true
+        
+        sendTraderWebhook(stock, location, getCurrentServerInfo())
+        task.wait(2)
+        print("[TraderHopper] Webhook sent! Hopping to next server...")
+        return true
     else
         lastFoundTrader = false
     end
@@ -452,89 +675,40 @@ local function scanCurrentServer()
     return lastFoundTrader
 end
 
-
-local player = Players.LocalPlayer
-local humanoid
-local function setupCharacter(char)
-    humanoid = char:WaitForChild("Humanoid")
-end
-
-if player.Character then
-    setupCharacter(player.Character)
-end
-
-player.CharacterAdded:Connect(setupCharacter)
-
-task.spawn(function()
-    while true do
-        if humanoid and humanoid.Parent then
-            humanoid:ChangeState(Enum.HumanoidStateType.Jumping)
-        end
-        task.wait(1)
-    end
-end)
 scanCurrentServer()
-
-local function waitForCharacterAndSpawnIfNeeded()
-    ensureSpawned()
-
-    local char = LP.Character or LP.CharacterAdded:Wait()
-    local hum  = char:FindFirstChildOfClass("Humanoid") or char:WaitForChild("Humanoid", 5)
-    if not hum then return end
-
-    setCameraToHumanoid(hum)
-
-    hum:SetStateEnabled(Enum.HumanoidStateType.Swimming, false)
-    hum:ChangeState(Enum.HumanoidStateType.Running)
-    hum.StateChanged:Connect(function(_, new)
-        if new == Enum.HumanoidStateType.Swimming then
-            hum:ChangeState(Enum.HumanoidStateType.Running)
-        end
-    end)
-end
 if AUTO_HOP then
     while true do
         local found = scanCurrentServer()
-
-        if shouldHopNow then
-            shouldHopNow = false
-            local target = pickRandomUnvisited()
-            if not target then
-                cache = { visited = {}, started = os.clock() }
-                saveCache(cache)
-                target = pickRandomUnvisited()
+        
+        if found then
+            print("[TraderHopper] Hopping to new server...")
+            local prevJobId = game.JobId
+            hopToNonFullServer()
+            
+            local timeout = os.clock() + 20
+            while game.JobId == prevJobId and os.clock() < timeout do
+                task.wait(0.5)
             end
-            if target then
-                local prev = game.JobId
-                hopTo(target.jobId)
-                local t0 = os.clock()
-                while game.JobId == prev and (os.clock() - t0) < 15 do task.wait() end
-                if game.JobId ~= prev then
-                    markVisited(game.JobId)
-                    waitForCharacterAndSpawnIfNeeded()
-                end
-            end
-        elseif not found then
-            local target = pickRandomUnvisited()
-            if not target then
-                cache = { visited = {}, started = os.clock() }
-                saveCache(cache)
-                target = pickRandomUnvisited()
-            end
-            if target then
-                local prev = game.JobId
-                hopTo(target.jobId)
-                local t0 = os.clock()
-                while game.JobId == prev and (os.clock() - t0) < 15 do task.wait() end
-                if game.JobId ~= prev then
-                    markVisited(game.JobId)
-                    waitForCharacterAndSpawnIfNeeded()
-                end
+            
+            if game.JobId ~= prevJobId then
+                print("[TraderHopper] Successfully hopped to new server!")
+                markVisited(game.JobId)
             end
         else
-            task.wait(1.5)
+            local target = pickRandomUnvisited()
+            if not target then
+                cache = { visited = {}, started = os.clock() }
+                saveCache(cache)
+                target = pickRandomUnvisited()
+            end
+            if target then
+                print("[TraderHopper] No trader found, hopping to new server...")
+                hopToNonFullServer()
+            else
+                task.wait(1)
+            end
         end
-
+        
         task.wait(HOP_INTERVAL)
     end
 end
