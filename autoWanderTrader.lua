@@ -106,44 +106,6 @@ local function hardHideSpawnGuiFor(ms)
     end
 end
 
-local function bedCooldown()
-    local last = GameUtil and GameUtil.Data and GameUtil.Data.lastSpawnFromBed or 0
-    local now = (Clock and Clock.getServerTime and Clock.getServerTime()) or os.time()
-    return 120 - (now - last)
-end
-
-local function spawnAtBed()
-    local oldHas = LP:GetAttribute("hasSpawned")
-    LP:SetAttribute("hasSpawned", true)
-
-    local ok, serverStamp = pcall(function()
-        return SpawnFirst:InvokeServer(true)
-    end)
-    if not ok or not serverStamp then
-        LP:SetAttribute("hasSpawned", oldHas or false)
-        return false
-    end
-
-    if GameUtil and GameUtil.Data then
-        GameUtil.Data.lastSpawnFromBed = serverStamp
-    end
-
-    local char = LP.Character or LP.CharacterAdded:Wait()
-    local hum = char and char:WaitForChild("Humanoid", 10)
-    hum:SetStateEnabled(Enum.HumanoidStateType.Swimming, false)
-    hum:ChangeState(Enum.HumanoidStateType.Running)
-    hum.StateChanged:Connect(function(old, new)
-        if new == Enum.HumanoidStateType.Swimming then
-            hum:ChangeState(Enum.HumanoidStateType.Running)
-        end
-    end)
-    if not hum then return false end
-
-    setCameraToHumanoid(hum)
-
-    return true
-end
-
 local function findTraderNPCStrict()
 	local root = workspace:FindFirstChild("DialogNPCs"); if not root then return nil end
 	local normal = root:FindFirstChild("Normal"); if normal then local npc = normal:FindFirstChild("Wandering Trader"); if npc then return npc end end
@@ -416,9 +378,6 @@ end
 markVisited(game.JobId)
 
 local function navigateThenFetch()
-    if LP:GetAttribute("hasSpawned") ~= true and bedCooldown() <= 0 then
-        spawnAtBed()
-    end
     local char = LP.Character or LP.CharacterAdded:Wait()
     local hum  = char:WaitForChild("Humanoid")
     hum:SetStateEnabled(Enum.HumanoidStateType.Swimming, false)
@@ -470,9 +429,45 @@ local function scanCurrentServer()
     return lastFoundTrader
 end
 
+local player = Players.LocalPlayer
+local humanoid
+local function setupCharacter(char)
+    humanoid = char:WaitForChild("Humanoid")
+end
 
+if player.Character then
+    setupCharacter(player.Character)
+end
+
+player.CharacterAdded:Connect(setupCharacter)
+
+task.spawn(function()
+    while true do
+        if humanoid and humanoid.Parent then
+            humanoid:ChangeState(Enum.HumanoidStateType.Jumping)
+        end
+        task.wait(1)
+    end
+end)
 scanCurrentServer()
 
+local function waitForCharacterAndSpawnIfNeeded()
+    ensureSpawned()
+
+    local char = LP.Character or LP.CharacterAdded:Wait()
+    local hum  = char:FindFirstChildOfClass("Humanoid") or char:WaitForChild("Humanoid", 5)
+    if not hum then return end
+
+    setCameraToHumanoid(hum)
+
+    hum:SetStateEnabled(Enum.HumanoidStateType.Swimming, false)
+    hum:ChangeState(Enum.HumanoidStateType.Running)
+    hum.StateChanged:Connect(function(_, new)
+        if new == Enum.HumanoidStateType.Swimming then
+            hum:ChangeState(Enum.HumanoidStateType.Running)
+        end
+    end)
+end
 if AUTO_HOP then
     while true do
         local found = scanCurrentServer()
@@ -510,3 +505,4 @@ if AUTO_HOP then
         task.wait(HOP_INTERVAL)
     end
 end
+
