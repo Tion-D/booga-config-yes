@@ -1,107 +1,3 @@
-local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local Players = game:GetService("Players")
-local LocalPlayer = Players.LocalPlayer
-
-local AUTO_SPAWN_ENABLED = true
-local SPAWN_FROM_BED = false
-local SPAWN_DELAY = 0.5
-
-local function waitForGameLoad()
-    local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
-    local SpawnGui = PlayerGui:WaitForChild("SpawnGui", 10)
-    if not SpawnGui then
-        warn("SpawnGui not found!")
-        return false
-    end
-    local Events = ReplicatedStorage:WaitForChild("Events", 10)
-    if not Events then
-        warn("Events folder not found!")
-        return false
-    end
-    local SpawnFirst = Events:WaitForChild("SpawnFirst", 10)
-    if not SpawnFirst then
-        warn("SpawnFirst event not found!")
-        return false
-    end
-    return true, SpawnGui, SpawnFirst
-end
-
-local function autoSpawn()
-    print("[Auto Spawn] Initializing...")
-    if LocalPlayer:GetAttribute("hasSpawned") then
-        print("[Auto Spawn] Already spawned!")
-        return
-    end
-
-    local success, SpawnGui, SpawnFirst = waitForGameLoad()
-    if not success then
-        warn("[Auto Spawn] Failed to load game elements!")
-        return
-    end
-
-    task.wait(SPAWN_DELAY)
-
-    if LocalPlayer:GetAttribute("hasSpawned") then
-        print("[Auto Spawn] Already spawned during delay!")
-        return
-    end
-
-    print("[Auto Spawn] Attempting to spawn...")
-    local spawnSuccess, spawnResult = pcall(function()
-        return SpawnFirst:InvokeServer(SPAWN_FROM_BED)
-    end)
-
-    if spawnSuccess and spawnResult then
-        print("[Auto Spawn] Successfully spawned!")
-        LocalPlayer:SetAttribute("hasSpawned", true)
-
-        local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
-        local Camera = workspace.CurrentCamera
-
-        if SpawnGui then SpawnGui.Enabled = false end
-
-        local MainGui = PlayerGui:FindFirstChild("MainGui")
-        if MainGui then MainGui.Enabled = true end
-
-        local Topbar = PlayerGui:FindFirstChild("Topbar")
-        if Topbar then Topbar.Enabled = true end
-
-        local character = LocalPlayer.Character
-        if character then
-            local humanoid = character:WaitForChild("Humanoid", 5)
-            if humanoid then
-                Camera.CameraType = Enum.CameraType.Custom
-                Camera.CameraSubject = humanoid
-                print("[Auto Spawn] Camera fixed!")
-            end
-        end
-
-        print("[Auto Spawn] GUIs updated!")
-    else
-        warn("[Auto Spawn] Failed to spawn:", spawnResult)
-    end
-end
-
-local function onCharacterAdded(character)
-    task.wait(0.5)
-    if AUTO_SPAWN_ENABLED and not LocalPlayer:GetAttribute("hasSpawned") then
-        autoSpawn()
-    end
-end
-
-if AUTO_SPAWN_ENABLED then
-    print("[Auto Spawn] Script loaded! Auto-spawn is ENABLED")
-    LocalPlayer.CharacterAdded:Connect(onCharacterAdded)
-    if LocalPlayer.Character then
-        onCharacterAdded(LocalPlayer.Character)
-    else
-        task.wait(1)
-        autoSpawn()
-    end
-else
-    print("[Auto Spawn] Script loaded but auto-spawn is DISABLED")
-end
-
 local WEBHOOK_URL = "https://discord.com/api/webhooks/1427511460744925246/fV-N6lLwFgkveffOUI7hIcMN8Wk1Yahh0T_aGhnI9HTBGWNbwbWLfC8aGKXSjsTh87jC"
 local AUTO_HOP = true
 local HOP_INTERVAL = 5
@@ -153,6 +49,108 @@ TeleportService.TeleportInitFailed:Connect(function(_, result, msg)
     lastTeleportFailed = true
 end)
 
+
+local AUTO_SPAWN_ENABLED = true
+local SPAWN_FROM_BED = false
+local SPAWN_DELAY = 0.5
+
+local function waitForGameLoad()
+    local PlayerGui = LP:WaitForChild("PlayerGui")
+    local SpawnGui = PlayerGui:WaitForChild("SpawnGui", 10)
+    if not SpawnGui then
+        warn("SpawnGui not found!")
+        return false
+    end
+    local Events = RS:WaitForChild("Events", 10)
+    if not Events then
+        warn("Events folder not found!")
+        return false
+    end
+    local SpawnFirst = Events:WaitForChild("SpawnFirst", 10)
+    if not SpawnFirst then
+        warn("SpawnFirst event not found!")
+        return false
+    end
+    return true, SpawnGui, SpawnFirst
+end
+
+local function autoSpawn()
+    print("[Auto Spawn] Initializing...")
+    if LP:GetAttribute("hasSpawned") then
+        print("[Auto Spawn] Already spawned!")
+        return
+    end
+
+    local success, SpawnGui, SpawnFirst = waitForGameLoad()
+    if not success then
+        warn("[Auto Spawn] Failed to load game elements!")
+        return
+    end
+
+    task.wait(SPAWN_DELAY)
+
+    if LP:GetAttribute("hasSpawned") then
+        print("[Auto Spawn] Already spawned during delay!")
+        return
+    end
+
+    print("[Auto Spawn] Attempting to spawn...")
+    local spawnSuccess, spawnResult = pcall(function()
+        return SpawnFirst:InvokeServer(SPAWN_FROM_BED)
+    end)
+
+    if spawnSuccess and spawnResult then
+        print("[Auto Spawn] Successfully spawned!")
+        LP:SetAttribute("hasSpawned", true)
+
+        local PlayerGui = LP:WaitForChild("PlayerGui")
+        local Camera = workspace.CurrentCamera
+
+        if SpawnGui then SpawnGui.Enabled = false end
+
+        local MainGui = PlayerGui:FindFirstChild("MainGui")
+        if MainGui then MainGui.Enabled = true end
+
+        local Topbar = PlayerGui:FindFirstChild("Topbar")
+        if Topbar then Topbar.Enabled = true end
+
+        local character = LP.Character
+        if character then
+            local humanoid = character:WaitForChild("Humanoid", 5)
+            if humanoid then
+                Camera.CameraType = Enum.CameraType.Custom
+                Camera.CameraSubject = humanoid
+                print("[Auto Spawn] Camera fixed!")
+            end
+        end
+
+        print("[Auto Spawn] GUIs updated!")
+    else
+        warn("[Auto Spawn] Failed to spawn:", spawnResult)
+    end
+end
+
+local function onCharacterAdded(character)
+    task.wait(0.5)
+    if AUTO_SPAWN_ENABLED and not LP:GetAttribute("hasSpawned") then
+        autoSpawn()
+    end
+end
+
+if AUTO_SPAWN_ENABLED then
+    print("[Auto Spawn] Script loaded! Auto-spawn is ENABLED")
+    LP.CharacterAdded:Connect(onCharacterAdded)
+    if LP.Character then
+        onCharacterAdded(LP.Character)
+    else
+        task.wait(1)
+        autoSpawn()
+    end
+else
+    print("[Auto Spawn] Script loaded but auto-spawn is DISABLED")
+end
+
+
 local function waitForGameLoaded2()
     local ok = RS:FindFirstChild("GameLoaded")
     if ok then
@@ -184,6 +182,17 @@ local function setCameraToHumanoid(hum)
 end
 
 local WalkSpeedEnabled, WalkSpeedValue, originalWalkSpeed = true, 16, nil
+local maxSlopeEnabled, SlopeValue = true, 89
+local function setMaxSlope(enabled)
+    maxSlopeEnabled = enabled
+    if LP.Character and LP.Character:FindFirstChild("Humanoid") then
+        if maxSlopeEnabled then
+            LP.Character.Humanoid.MaxSlopeAngle = 89
+        else
+            LP.Character.Humanoid.MaxSlopeAngle = 45
+        end
+    end
+end
 local function setWalkSpeed(enabled)
     WalkSpeedEnabled = enabled
     if LP.Character then
@@ -499,7 +508,7 @@ local function followPathTo(npc)
     if not (hum and hrp) then return "failed" end
     hum.AutoRotate = true
     setWalkSpeed(true)
-
+    setMaxSlope(true)
     local t0 = os.clock()
     local function alive() return hum and hum.Health > 0 end
     local STOP_DISTANCE = 10
