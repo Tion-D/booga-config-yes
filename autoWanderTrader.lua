@@ -127,6 +127,15 @@ local function getTraderTimeLeft()
     return string.format("%dm %02ds", math.floor(left/60), left % 60), left
 end
 
+local function traderStillThere(npc)
+    if not npc or not npc.Parent then return false end
+    local spawnTime = npc:GetAttribute("spawnTime")
+    local now = (Clock and Clock.getServerTime and Clock.getServerTime()) or os.time()
+    if not spawnTime then return true end
+    local left = 1800 - (now - spawnTime)
+    return left > 0
+end
+
 local function sendTraderWebhook(stock, locationStr, serverInfo)
     if not stock or #stock == 0 then return end
     local rareFound = false
@@ -292,29 +301,40 @@ local function followPathTo(npc)
     local t0 = os.clock()
     local function alive() return hum and hum.Health > 0 end
 
-    while npc and npc.Parent and alive() do
-        if os.clock() - t0 > 300 then return "timeout" end
+    while npc and npc.Parent and traderStillThere(npc) and alive() do
+    if os.clock()-t0 > 300 then return "timeout" end
 
-        local tPos = npc:GetPivot().Position
-        if (hrp.Position - tPos).Magnitude <= ARRIVE_RADIUS then
+    if not traderStillThere(npc) then
+        return "despawned"
+    end
+
+    local tPos = npc:GetPivot().Position
+    if (hrp.Position - tPos).Magnitude <= ARRIVE_RADIUS then
+        hum:Move(Vector3.new(), true)
+        return "arrived"
+    end
+
+    local wps = computePath(hrp.Position, tPos)
+    if not wps or #wps == 0 then task.wait(0.25) continue end
+
+    for _, w in ipairs(wps) do
+        if not alive() then break end
+        if not traderStillThere(npc) then
+            return "despawned"
+        end
+        if (w.Position - tPos).Magnitude <= ARRIVE_RADIUS then
             hum:Move(Vector3.new(), true)
             return "arrived"
         end
+        hum:MoveTo(w.Position)
+        if not hum.MoveToFinished:Wait() then break end
+        if os.clock()-t0 > 300 then return "timeout" end
+    end
 
-        local wps = computePath(hrp.Position, tPos)
-        if not wps or #wps == 0 then task.wait(0.25) continue end
+    task.wait(0.05)
 
-        for _, w in ipairs(wps) do
-            if not alive() then break end
-            if (w.Position - tPos).Magnitude <= ARRIVE_RADIUS then
-                hum:Move(Vector3.new(), true)
-                return "arrived"
-            end
-            hum:MoveTo(w.Position)
-            if not hum.MoveToFinished:Wait() then break end
-            if os.clock() - t0 > 300 then return "timeout" end
-        end
-        task.wait(0.05)
+    if not traderStillThere(npc) then
+        return "despawned"
     end
     return "failed"
 end
@@ -408,7 +428,11 @@ local function navigateThenFetch()
     if not npc then return false, {}, "None" end
 
     local res = followPathTo(npc)
-    if res == "timeout" then return false, {}, "Timeout" end
+    if res == "despawned" then
+        return false, {}, "Despawned"
+    elseif res == "timeout" then
+        return false, {}, "Timeout"
+    end
 
     local hadTrader, stock, loc = fetchStock(12)
     return hadTrader, stock, loc
@@ -436,6 +460,9 @@ local function scanCurrentServer()
             lastFoundTrader = true
         end
     else
+        if location == "Despawned" then
+            shouldHopNow = true
+        end
         lastFoundTrader = false
     end
 
