@@ -456,6 +456,9 @@ local function moveAndJumpTo(hum, hrp, targetPos)
     local arriveRadius = 2.5
     local segDeadline = os.clock() + 8.0
     local moveFinished = false
+    
+    if not hrp or not hrp.Parent then return end
+    
     local here = hrp.Position
     local look = Vector3.new(targetPos.X, here.Y, targetPos.Z)
     if (look - here).Magnitude > 0.01 then
@@ -472,12 +475,14 @@ local function moveAndJumpTo(hum, hrp, targetPos)
     local stuckCount = 0
     
     while not moveFinished and os.clock() < segDeadline do
+        if not hrp or not hrp.Parent or not hum or hum.Health <= 0 then break end
+        
         local delta = (targetPos - hrp.Position)
         if delta.Magnitude <= arriveRadius then break end
         hum:MoveTo(targetPos)
         if shortLedgeAhead(hrp) then hum.Jump = true end
         if os.clock() - lastCheck >= 0.4 then
-            if hrp and hrp.Position and nearlyStopped(hrp.Position, lastPos) then
+            if hrp and hrp.Parent and hrp.Position and nearlyStopped(hrp.Position, lastPos) then
                 stuckCount += 1
                 hum.Jump = true
                 hrp.AssemblyLinearVelocity += (delta.Unit * 8) + Vector3.new(0, 3, 0)
@@ -490,7 +495,9 @@ local function moveAndJumpTo(hum, hrp, targetPos)
             else
                 stuckCount = 0
             end
-            lastPos = hrp.Position
+            if hrp and hrp.Parent then
+                lastPos = hrp.Position
+            end
             lastCheck = os.clock()
         end
         task.wait(0.05)
