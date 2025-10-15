@@ -11,6 +11,9 @@ local BETWEEN_REQ_WAIT = 0.25
 local STOCK_TIMEOUT = 12
 local scanBusy = false
 local lastFoundTrader = false
+local ARRIVE_RADIUS = 10
+local webhookSentForJob = {}
+local shouldHopNow = false
 
 local RARE_ALERT = {["Twin Scythe"]=true,["Spirit Key"]=true,["Secret Class"]=true}
 
@@ -280,29 +283,40 @@ local function computePath(fromPos, toPos)
 end
 
 local function followPathTo(npc)
-	local char=LP.Character or LP.CharacterAdded:Wait()
-	local hum=char:WaitForChild("Humanoid")
-	local hrp=getHRP(char)
-	if not (hum and hrp) then return "failed" end
-	setWalkSpeed(true); setMaxSlope(false)
-	local t0=os.clock()
-	local function alive() return hum and hum.Health>0 end
-	while npc and npc.Parent and alive() do
-		if os.clock()-t0>300 then return "timeout" end
-		local tPos=npc:GetPivot().Position
-		if dist(hrp.Position,tPos)<=8 then hum:Move(Vector3.new(),true); tryFirePrompt(npc); return "arrived" end
-		local wps=computePath(hrp.Position,tPos)
-		if not wps or #wps==0 then task.wait(0.25) continue end
-		for _,w in ipairs(wps) do
-			if not alive() then break end
-			if segmentSlopeDegrees(hrp.Position,w.Position)>MAX_ALLOWED_SLOPE then break end
-			hum:MoveTo(w.Position)
-			if not hum.MoveToFinished:Wait() then break end
-			if os.clock()-t0>300 then return "timeout" end
-		end
-		task.wait(0.05)
-	end
-	return "failed"
+    local char = LP.Character or LP.CharacterAdded:Wait()
+    local hum  = char:WaitForChild("Humanoid")
+    local hrp  = char:FindFirstChild("HumanoidRootPart")
+    if not (hum and hrp) then return "failed" end
+
+    setWalkSpeed(true); setMaxSlope(false)
+    local t0 = os.clock()
+    local function alive() return hum and hum.Health > 0 end
+
+    while npc and npc.Parent and alive() do
+        if os.clock() - t0 > 300 then return "timeout" end
+
+        local tPos = npc:GetPivot().Position
+        if (hrp.Position - tPos).Magnitude <= ARRIVE_RADIUS then
+            hum:Move(Vector3.new(), true)
+            return "arrived"
+        end
+
+        local wps = computePath(hrp.Position, tPos)
+        if not wps or #wps == 0 then task.wait(0.25) continue end
+
+        for _, w in ipairs(wps) do
+            if not alive() then break end
+            if (w.Position - tPos).Magnitude <= ARRIVE_RADIUS then
+                hum:Move(Vector3.new(), true)
+                return "arrived"
+            end
+            hum:MoveTo(w.Position)
+            if not hum.MoveToFinished:Wait() then break end
+            if os.clock() - t0 > 300 then return "timeout" end
+        end
+        task.wait(0.05)
+    end
+    return "failed"
 end
 
 function fetchStock(timeoutSec)
@@ -403,9 +417,7 @@ end
 local function scanCurrentServer()
     if scanBusy then return lastFoundTrader end
     scanBusy = true
-    local ok, hadTrader, stock, location = pcall(function()
-        return navigateThenFetch()
-    end)
+    local ok, hadTrader, stock, location = pcall(navigateThenFetch)
     scanBusy = false
 
     if not ok then
@@ -415,12 +427,13 @@ local function scanCurrentServer()
     end
 
     if hadTrader and stock and #stock > 0 then
-        lastFoundTrader = true
-        sendTraderWebhook(stock, location, getCurrentServerInfo())
-        local t0 = os.clock()
-        while os.clock() - t0 < 30 do
-            if not findTraderNPCStrict() then break end
-            task.wait(1)
+        if not webhookSentForJob[game.JobId] then
+            webhookSentForJob[game.JobId] = true
+            lastFoundTrader = true
+            sendTraderWebhook(stock, location, getCurrentServerInfo())
+            shouldHopNow = true
+        else
+            lastFoundTrader = true
         end
     else
         lastFoundTrader = false
@@ -428,6 +441,7 @@ local function scanCurrentServer()
 
     return lastFoundTrader
 end
+
 
 local player = Players.LocalPlayer
 local humanoid
@@ -472,37 +486,45 @@ if AUTO_HOP then
     while true do
         local found = scanCurrentServer()
 
-        if not found then
+        if shouldHopNow then
+            shouldHopNow = false
             local target = pickRandomUnvisited()
             if not target then
                 cache = { visited = {}, started = os.clock() }
                 saveCache(cache)
                 target = pickRandomUnvisited()
             end
-
             if target then
                 local prev = game.JobId
                 hopTo(target.jobId)
-
                 local t0 = os.clock()
-                while game.JobId == prev and (os.clock() - t0) < 15 do
-                    task.wait()
-                end
-
+                while game.JobId == prev and (os.clock() - t0) < 15 do task.wait() end
                 if game.JobId ~= prev then
                     markVisited(game.JobId)
                     waitForCharacterAndSpawnIfNeeded()
-                else
-                    task.wait(1)
                 end
-            else
-                task.wait(1)
+            end
+        elseif not found then
+            local target = pickRandomUnvisited()
+            if not target then
+                cache = { visited = {}, started = os.clock() }
+                saveCache(cache)
+                target = pickRandomUnvisited()
+            end
+            if target then
+                local prev = game.JobId
+                hopTo(target.jobId)
+                local t0 = os.clock()
+                while game.JobId == prev and (os.clock() - t0) < 15 do task.wait() end
+                if game.JobId ~= prev then
+                    markVisited(game.JobId)
+                    waitForCharacterAndSpawnIfNeeded()
+                end
             end
         else
-            task.wait(3)
+            task.wait(1.5)
         end
 
         task.wait(HOP_INTERVAL)
     end
 end
-
