@@ -9,6 +9,8 @@ local REQUIRED_DIST = 20
 local MAX_REQ_TRIES = 5
 local BETWEEN_REQ_WAIT = 0.25
 local STOCK_TIMEOUT = 12
+local scanBusy = false
+local lastFoundTrader = false
 
 local RARE_ALERT = {["Twin Scythe"]=true,["Spirit Key"]=true,["Secret Class"]=true}
 
@@ -28,6 +30,7 @@ local SpawnFirst = Events:WaitForChild("SpawnFirst")
 local Packets = require(RS.Modules.Packets)
 local traderData = require(RS.Modules.traderData)
 local Clock = require(RS.Modules.Clock)
+local GameUtil = require(RS.Modules.GameUtil)
 
 local ServerRegionValue = RS:FindFirstChild("BOOLET") and RS.BOOLET:FindFirstChild("ServerRegion")
 
@@ -126,7 +129,14 @@ local function spawnAtBed()
     end
 
     local char = LP.Character or LP.CharacterAdded:Wait()
-    local hum  = char and char:WaitForChild("Humanoid", 10)
+    local hum = char and char:WaitForChild("Humanoid", 10)
+    hum:SetStateEnabled(Enum.HumanoidStateType.Swimming, false)
+    hum:ChangeState(Enum.HumanoidStateType.Running)
+    hum.StateChanged:Connect(function(old, new)
+        if new == Enum.HumanoidStateType.Swimming then
+            hum:ChangeState(Enum.HumanoidStateType.Running)
+        end
+    end)
     if not hum then return false end
 
     setCameraToHumanoid(hum)
@@ -246,17 +256,29 @@ local function tryFirePrompt(npc)
 	for _, d in ipairs(npc:GetDescendants()) do if d:IsA("ProximityPrompt") then prompt=d break end end
 	if prompt and typeof(fireproximityprompt)=="function" then pcall(fireproximityprompt,prompt) end
 end
+local function ensureSpawned()
+    local ok, stamp = pcall(function()
+        return SpawnFirst:InvokeServer(false)
+    end)
+    if not ok or not stamp then return false end
 
-local function forceRespawn()
-    local c = LP.Character
-    local h = c and c:FindFirstChildOfClass("Humanoid")
-    if h and h.Health > 0 then
-        h.Health = 0
-    end
-    LP.CharacterAdded:Wait()
-    task.wait(0.25)
-    ensureSpawned(false)
+    local char = LP.Character or LP.CharacterAdded:Wait()
+    local hum  = char and char:WaitForChild("Humanoid", 3)
+    if not hum then return false end
+
+    setCameraToHumanoid(hum)
+    hum:SetStateEnabled(Enum.HumanoidStateType.Swimming, false)
+    hum:ChangeState(Enum.HumanoidStateType.Running)
+    hum.StateChanged:Connect(function(_, new)
+        if new == Enum.HumanoidStateType.Swimming then
+            hum:ChangeState(Enum.HumanoidStateType.Running)
+        end
+    end)
+
+    return true
 end
+
+
 
 local function getHRP(char) return char and char:FindFirstChild("HumanoidRootPart") end
 local function segmentSlopeDegrees(a,b)
@@ -266,26 +288,35 @@ local function segmentSlopeDegrees(a,b)
 	return math.abs(math.deg(math.atan2(d.Y,horiz)))
 end
 local MAX_ALLOWED_SLOPE = 40
-local function computePath(fromPos,toPos)
-	local agent={AgentRadius=2,AgentHeight=5,AgentCanJump=true,AgentCanClimb=true}
-	local p=PathfindingService:CreatePath(agent); p:ComputeAsync(fromPos,toPos); if p.Status~=Enum.PathStatus.Success then return nil end
-	local pts=p:GetWaypoints()
-	for i=1,#pts-1 do if segmentSlopeDegrees(pts[i].Position,pts[i+1].Position)>MAX_ALLOWED_SLOPE then
-		local a,b=pts[i].Position,pts[i+1].Position
-		local lateral=(b-a).Unit:Cross(Vector3.yAxis)*10
-		local mid=(a+b)*0.5 + lateral
-		local p1=PathfindingService:CreatePath(agent); p1:ComputeAsync(fromPos,mid)
-		local p2=PathfindingService:CreatePath(agent); p2:ComputeAsync(mid,toPos)
-		if p1.Status==Enum.PathStatus.Success and p2.Status==Enum.PathStatus.Success then
-			local w1,w2=p1:GetWaypoints(),p2:GetWaypoints()
-			for j=#w1,2,-1 do table.remove(w1,j) end
-			for _,w in ipairs(w2) do table.insert(w1,w) end
-			return w1
-		end
-		break
-	end end
-	return pts
+local function computePath(fromPos, toPos)
+    local agent = {AgentRadius=2, AgentHeight=5, AgentCanJump=true, AgentCanClimb=true}
+    local p = PathfindingService:CreatePath(agent)
+    p:ComputeAsync(fromPos, toPos)
+
+    if p.Status ~= Enum.PathStatus.Success then
+        return { {Position = toPos} }
+    end
+
+    local pts = p:GetWaypoints()
+    for i = 1, #pts - 1 do
+        if segmentSlopeDegrees(pts[i].Position, pts[i+1].Position) > MAX_ALLOWED_SLOPE then
+            local a, b = pts[i].Position, pts[i+1].Position
+            local lateral = (b - a).Unit:Cross(Vector3.yAxis) * 10
+            local mid = (a + b) * 0.5 + lateral
+            local p1 = PathfindingService:CreatePath(agent) p1:ComputeAsync(fromPos, mid)
+            local p2 = PathfindingService:CreatePath(agent) p2:ComputeAsync(mid, toPos)
+            if p1.Status == Enum.PathStatus.Success and p2.Status == Enum.PathStatus.Success then
+                local w1, w2 = p1:GetWaypoints(), p2:GetWaypoints()
+                for j = #w1, 2, -1 do table.remove(w1, j) end
+                for _, w in ipairs(w2) do table.insert(w1, w) end
+                return w1
+            end
+            break
+        end
+    end
+    return pts
 end
+
 local function followPathTo(npc)
 	local char=LP.Character or LP.CharacterAdded:Wait()
 	local hum=char:WaitForChild("Humanoid")
@@ -390,14 +421,12 @@ local function navigateThenFetch()
     end
     local char = LP.Character or LP.CharacterAdded:Wait()
     local hum  = char:WaitForChild("Humanoid")
-
+    hum:SetStateEnabled(Enum.HumanoidStateType.Swimming, false)
     hum.Died:Once(function()
         task.spawn(function()
             LP.CharacterAdded:Wait()
-            task.wait(0.5)
-            if bedCooldown() <= 0 then
-                spawnAtBed()
-            end
+            task.wait(0.25)
+            ensureSpawned()
             navigateThenFetch()
         end)
     end)
@@ -413,32 +442,71 @@ local function navigateThenFetch()
 end
 
 local function scanCurrentServer()
-	local hadTrader, stock, location = navigateThenFetch()
-	if hadTrader and stock and #stock>0 then
-		sendTraderWebhook(stock, location, getCurrentServerInfo())
-	else
-		print("[TraderHopper] No trader/stock -> skip webhook.")
-	end
+    if scanBusy then return lastFoundTrader end
+    scanBusy = true
+    local ok, hadTrader, stock, location = pcall(function()
+        return navigateThenFetch()
+    end)
+    scanBusy = false
+
+    if not ok then
+        warn("[TraderHopper] scan error:", hadTrader)
+        lastFoundTrader = false
+        return false
+    end
+
+    if hadTrader and stock and #stock > 0 then
+        lastFoundTrader = true
+        sendTraderWebhook(stock, location, getCurrentServerInfo())
+        local t0 = os.clock()
+        while os.clock() - t0 < 30 do
+            if not findTraderNPCStrict() then break end
+            task.wait(1)
+        end
+    else
+        lastFoundTrader = false
+    end
+
+    return lastFoundTrader
 end
+
 
 scanCurrentServer()
 
 if AUTO_HOP then
-	while task.wait(HOP_INTERVAL) do
-		local target = pickRandomUnvisited()
-		if not target then
-			cache = { visited = {}, started = os.clock() }
-			saveCache(cache)
-			target = pickRandomUnvisited()
-			if not target then task.wait(1) continue end
-		end
-		local prev = game.JobId
-		hopTo(target.jobId)
-		local t0 = os.clock()
-		while game.JobId == prev and (os.clock() - t0) < 15 do task.wait() end
-		if game.JobId == prev then continue end
-		markVisited(game.JobId)
-		task.wait(1)
-		scanCurrentServer()
-	end
+    while true do
+        local found = scanCurrentServer()
+
+        if not found then
+            local target = pickRandomUnvisited()
+            if not target then
+                cache = { visited = {}, started = os.clock() }
+                saveCache(cache)
+                target = pickRandomUnvisited()
+            end
+
+            if target then
+                local prev = game.JobId
+                hopTo(target.jobId)
+
+                local t0 = os.clock()
+                while game.JobId == prev and (os.clock() - t0) < 15 do
+                    task.wait()
+                end
+
+                if game.JobId ~= prev then
+                    markVisited(game.JobId)
+                    waitForCharacterAndSpawnIfNeeded()
+                else
+                    task.wait(1)
+                end
+            else
+                task.wait(1)
+            end
+        else
+            task.wait(3)
+        end
+
+        task.wait(HOP_INTERVAL)
+    end
 end
