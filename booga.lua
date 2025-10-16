@@ -25,8 +25,10 @@ local GameUtil = require(RS.Modules.GameUtil)
 local ItemData = require(RS.Modules.ItemData)
 local ItemIDS = require(RS.Modules.ItemIDS)
 local Packets = require(RS.Modules.Packets)
-local SkinHandler = require(RS.Game.skins)
 local Clock = require(RS.Modules.Clock)
+local SkinData = require(RS.Modules.SkinData)
+local SkinIDS = require(RS.Modules.SkinIDS)
+local ColorData = require(RS.Modules.ColorData)
 
 local Character = Players.LocalPlayer.Character or Players.LocalPlayer.CharacterAdded:Wait()
 local LocalPlayer = game.Players.LocalPlayer
@@ -39,6 +41,18 @@ Players.LocalPlayer.CharacterAdded:Connect(function(char)
     Humanoid = char:WaitForChild("Humanoid")
     Root = char:WaitForChild("HumanoidRootPart")
 end)
+
+local function _try(t, k) return (t and t:FindFirstChild(k)) end
+
+local _CrateUI = _try(PG, "CrateUI")
+local _CrateMenu = _CrateUI and _try(_CrateUI, "CrateMenu")
+local _Container = _CrateMenu and _try(_CrateMenu, "Container")
+local _Inventory = _Container and _try(_Container, "Inventory")
+local _List = _Inventory and _try(_Inventory, "List")
+local _Templates = _CrateMenu and _try(_CrateMenu, "Templates")
+local _InvTemplate = _Templates and _try(_Templates, "InventoryTemplate")
+
+
 
 local farm = {}
 local positionList = {}
@@ -143,9 +157,8 @@ local POST_EAT_COOLDOWN = 2.0
 
 local LEVEL_TO_REBIRTH = 100
 local autoRebirthEnabled = false
-local autoBedSpawnEnabled = false
-local autoBedSpawnThread
-local bedSpawnBusy = false
+local AUTO_SPAWN_ENABLED = true
+local SPAWN_DELAY = 0.5
 
 local POTION_RECIPES = {
     ["Poison"] = { ["Prickly Pear"] = 3, ["Magnetite Bar"] = 1 },
@@ -1663,14 +1676,6 @@ local function toggleHugePumpkinESP()
     end
 end
 
-local function applySkins()
-    for i = 1, 999 do
-        pcall(function()
-            SkinHandler.SkinAdded(tostring(math.random(100000, 999999)), i)
-        end)
-    end
-end
-
 local function startAutoFishing()
     if rodBubbleConn then rodBubbleConn:Disconnect(); rodBubbleConn = nil end
     rodBubbleConn = Packets.RodBubble.listen(function(data)
@@ -1960,46 +1965,186 @@ function doRebirthIfReady()
     end
     return false
 end
+local function waitForGameLoad()
+    local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
+    local SpawnGui = PlayerGui:WaitForChild("SpawnGui", 10)
+    if not SpawnGui then warn("SpawnGui not found!") return false end
 
-local function bedCooldown()
-    local now = math.floor(Clock.getServerTime())
-    local last = tonumber(GameUtil.Data and GameUtil.Data.lastSpawnFromBed or 0) or 0
-    return math.max(120 - (now - last), 0)
+    local Events = RS:WaitForChild("Events", 10)
+    if not Events then warn("Events folder not found!") return false end
+
+    local SpawnFirst = Events:WaitForChild("SpawnFirst", 10)
+    if not SpawnFirst then warn("SpawnFirst event not found!") return false end
+
+    return true, SpawnGui, SpawnFirst
 end
-local function spawnAtBed()
-    local cd = bedCooldown()
+
+local function getBedCooldownRemaining()
+    local serverTime = math.floor(Clock.getServerTime())
+    local last = tonumber(GameUtil.Data.lastSpawnFromBed or 0)
+    local elapsed = serverTime - last
+    local cd = 120 - elapsed
+    return cd > 0 and cd or 0
+end
+
+local function autoSpawn()
+    if LocalPlayer:GetAttribute("hasSpawned") then return end
+
+    local ok, SpawnGui, SpawnFirst = waitForGameLoad()
+    if not ok then return end
+
+    task.wait(SPAWN_DELAY)
+    if LocalPlayer:GetAttribute("hasSpawned") then return end
+
+    local cd = getBedCooldownRemaining()
     if cd > 0 then
-        warn(("[AutoSpawn] Bed cooldown: %ds left"):format(cd))
-        return false
+        print(string.format("[Auto Spawn] Bed cooldown: %ds", cd))
+        task.wait(cd + 1)
     end
 
-    local oldHas = LocalPlayer:GetAttribute("hasSpawned")
-    LocalPlayer:SetAttribute("hasSpawned", true)
-
-    local ok, serverStamp = pcall(function()
+    local success, result = pcall(function()
         return SpawnFirst:InvokeServer(true)
     end)
 
-    if not ok or not serverStamp then
-        LocalPlayer:SetAttribute("hasSpawned", oldHas or false)
-        warn("[AutoSpawn] Bed spawn rejected.")
-        return false
+    if success and result then
+        print("[Auto Spawn] Spawned from bed ✔")
+        LocalPlayer:SetAttribute("hasSpawned", true)
+
+        local PG = LocalPlayer:WaitForChild("PlayerGui")
+        local SpawnGui = PG:FindFirstChild("SpawnGui")
+        if SpawnGui then SpawnGui.Enabled = false end
+        local MainGui = PG:FindFirstChild("MainGui")
+        if MainGui then MainGui.Enabled = true end
+        local Topbar = PG:FindFirstChild("Topbar")
+        if Topbar then Topbar.Enabled = true end
+
+        local cam = workspace.CurrentCamera
+        local char = LocalPlayer.Character
+        local hum = char and char:FindFirstChildOfClass("Humanoid")
+        if hum then
+            cam.CameraType = Enum.CameraType.Custom
+            cam.CameraSubject = hum
+        end
+    else
+        warn("[Auto Spawn] Failed:", result)
     end
-
-    if GameUtil and GameUtil.Data then
-        GameUtil.Data.lastSpawnFromBed = serverStamp
-    end
-
-    local Character = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
-    local Humanoid  = Character:WaitForChild("Humanoid")
-
-    CurrentCamera.CameraType = Enum.CameraType.Custom
-    CurrentCamera.CameraSubject = Humanoid
-
-    warn("[AutoSpawn] Spawned at Bed ✔")
-    return true
 end
 
+local function onCharacterAdded()
+    task.wait(0.5)
+    if AUTO_SPAWN_ENABLED and not LocalPlayer:GetAttribute("hasSpawned") then
+        autoSpawn()
+    end
+end
+
+GameUtil.Data = GameUtil.Data or {}
+if type(GameUtil.Data.equippedSkins) ~= "table" then
+    GameUtil.Data.equippedSkins = {}
+end
+setmetatable(GameUtil.Data.equippedSkins, {
+    __index = function() return { equippedName = "none", serial = "none" } end
+})
+
+local _RANK = { Common=7, Uncommon=6, Rare=5, Epic=4, Legendary=3, Exclusive=2, Item=1 }
+local _CARD_BG = 0.7
+
+local function _setCardEquippedState(card, isEquipped, rarity)
+    if not card then return end
+    if rarity == "Item" then
+        card.Equipped.Text = "USE"
+        card.Equipped.TextColor3 = ColorData.goodGreen
+        card.BackgroundTransparency = _CARD_BG
+        return
+    end
+    card.Equipped.Text = isEquipped and "UNEQUIP" or "EQUIP"
+    card.Equipped.TextColor3 = isEquipped and ColorData.badRed or ColorData.goodGreen
+    card.BackgroundTransparency = _CARD_BG
+end
+
+local function _toggleEquipVisual(skinName)
+    if not (_List and _InvTemplate) then return end
+    local def = SkinData[skinName]
+    if not def then return end
+    if def.rarity == "Item" then
+        local itemCard = _List:FindFirstChild(skinName)
+        _setCardEquippedState(itemCard, false, "Item")
+        return
+    end
+    local slot = def.typeOf
+    local current = GameUtil.Data.equippedSkins[slot] or {equippedName="none", serial="none"}
+
+    if current.equippedName == skinName then
+        GameUtil.Data.equippedSkins[slot] = {equippedName="none", serial="none"}
+        local thisCard = _List:FindFirstChild(skinName)
+        _setCardEquippedState(thisCard, false, def.rarity)
+        return
+    end
+    if current.equippedName ~= "none" then
+        local prevCard = _List:FindFirstChild(current.equippedName)
+        if prevCard then
+            local prevDef = SkinData[current.equippedName]
+            _setCardEquippedState(prevCard, false, prevDef and prevDef.rarity)
+        end
+    end
+    GameUtil.Data.equippedSkins[slot] = {equippedName = skinName, serial = "visual"}
+    local thisCard = _List:FindFirstChild(skinName)
+    _setCardEquippedState(thisCard, true, def.rarity)
+end
+
+local function _addSkinCard(skinName, qty)
+    if not (_List and _InvTemplate) then return end
+    qty = tonumber(qty) or 1
+    local def = SkinData[skinName]
+    if not def then return end
+
+    local existing = _List:FindFirstChild(skinName)
+    if existing then
+        local newQ = (existing:GetAttribute("Quantity") or 0) + qty
+        existing:SetAttribute("Quantity", newQ)
+        existing.Quantity.Text = ("x%d"):format(newQ)
+        return
+    end
+
+    local clone = _InvTemplate:Clone()
+    clone.BackgroundTransparency = _CARD_BG
+    clone.Name = skinName
+    clone:SetAttribute("Quantity", qty)
+
+    clone.Label.Text = skinName
+    clone.Label.BackgroundColor3 = ColorData.crateColors[def.rarity] or Color3.new(0,0,0)
+    clone.ImageLabel.Image = def.image or ""
+    clone.Quantity.Text = ("x%d"):format(qty)
+
+    local eq = GameUtil.Data.equippedSkins[def.typeOf]
+    local isEquipped = (eq and eq.equippedName ~= "none" and eq.equippedName == skinName)
+    _setCardEquippedState(clone, isEquipped, def.rarity)
+
+    clone.Activated:Connect(function()
+        _toggleEquipVisual(skinName)
+    end)
+
+    local sortValue = _Inventory and _Inventory:FindFirstChild("sort") and _Inventory.sort.Value or "All"
+    clone.Visible = (def.typeOf == sortValue or sortValue == "All")
+
+    local id = SkinIDS[skinName]
+    local rank = _RANK[def.rarity] or 0
+    clone.LayoutOrder = (tonumber(id) or 0) + rank * 100000
+
+    clone.Visible = true
+    clone.Parent = _List
+end
+
+local function FillSkinsInventoryUI(quantityPerSkin)
+    if not (_List and _InvTemplate) then
+        return
+    end
+    quantityPerSkin = tonumber(quantityPerSkin) or 1
+    for skinName, def in pairs(SkinData) do
+        if typeof(skinName) == "string" and def and def.image and def.rarity and def.typeOf then
+            pcall(_addSkinCard, skinName, quantityPerSkin)
+        end
+    end
+end
 
 local Fluent = loadstring(game:HttpGet("https://github.com/dawid-scripts/Fluent/releases/latest/download/main.lua"))()
 local SaveManager = loadstring(game:HttpGet("https://raw.githubusercontent.com/dawid-scripts/Fluent/master/Addons/SaveManager.lua"))()
@@ -2682,26 +2827,14 @@ Tabs.Extra:AddToggle("AutoBedSpawn", {
     Title = "Auto Bed Spawn",
     Default = false,
     Callback = function(enabled)
-        autoBedSpawnEnabled = enabled
+        AUTO_SPAWN_ENABLED = enabled
         if enabled then
-            autoBedSpawnThread = task.spawn(function()
-                local lastTry = 0
-                while autoBedSpawnEnabled do
-                    local needSpawn = (LocalPlayer:GetAttribute("hasSpawned") ~= true)
-
-                    local now = os.clock()
-                    if needSpawn and (now - lastTry) >= 1.0 and bedCooldown() <= 0 then
-                        lastTry = now
-                        spawnAtBed()
-                    end
-
-                    task.wait(0.2)
-                end
-            end)
-        else
-            if autoBedSpawnThread then
-                task.cancel(autoBedSpawnThread)
-                autoBedSpawnThread = nil
+            LocalPlayer.CharacterAdded:Connect(onCharacterAdded)
+            if LocalPlayer.Character then
+                onCharacterAdded()
+            else
+                task.wait(1)
+                autoSpawn()
             end
         end
     end
@@ -2852,12 +2985,12 @@ Tabs.Extra:AddToggle("NoClip", {
     end
 })
 
--- Tabs.Extra:AddButton({
---     Title = "Get every skin in the game (cant equip)",
---     Callback = function(value)
---         applySkins(value)
---     end
--- })
+Tabs.Extra:AddButton({
+    Title = "Get every skin (inventory UI only)",
+    Callback = function()
+        FillSkinsInventoryUI(1)
+    end
+})
 
 Tabs.Extra:AddSection("Inventory Dropper")
 
