@@ -144,6 +144,7 @@ local LEVEL_TO_REBIRTH = 100
 local autoRebirthEnabled = false
 local AUTO_SPAWN_ENABLED = true
 local SPAWN_DELAY = 0.5
+local autoSpawnConnection = nil
 
 local POTION_RECIPES = {
     ["Poison"] = { ["Prickly Pear"] = 3, ["Magnetite Bar"] = 1 },
@@ -2698,13 +2699,32 @@ Tabs.Extra:AddToggle("AutoBedSpawn", {
     Default = false,
     Callback = function(enabled)
         AUTO_SPAWN_ENABLED = enabled
+        
         if enabled then
-            LocalPlayer.CharacterAdded:Connect(onCharacterAdded)
+            if autoSpawnConnection then
+                autoSpawnConnection:Disconnect()
+            end
+            
+            autoSpawnConnection = LocalPlayer.CharacterAdded:Connect(function(char)
+                task.wait(0.5)
+                LocalPlayer:SetAttribute("hasSpawned", false)
+                if AUTO_SPAWN_ENABLED then
+                    autoSpawn()
+                end
+            end)
+            
             if LocalPlayer.Character then
-                onCharacterAdded()
+                task.wait(0.5)
+                LocalPlayer:SetAttribute("hasSpawned", false)
+                autoSpawn()
             else
                 task.wait(1)
                 autoSpawn()
+            end
+        else
+            if autoSpawnConnection then
+                autoSpawnConnection:Disconnect()
+                autoSpawnConnection = nil
             end
         end
     end
