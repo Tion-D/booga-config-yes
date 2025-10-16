@@ -26,9 +26,6 @@ local ItemData = require(RS.Modules.ItemData)
 local ItemIDS = require(RS.Modules.ItemIDS)
 local Packets = require(RS.Modules.Packets)
 local Clock = require(RS.Modules.Clock)
-local SkinData = require(RS.Modules.SkinData)
-local SkinIDS = require(RS.Modules.SkinIDS)
-local ColorData = require(RS.Modules.ColorData)
 
 local Character = Players.LocalPlayer.Character or Players.LocalPlayer.CharacterAdded:Wait()
 local LocalPlayer = game.Players.LocalPlayer
@@ -41,18 +38,6 @@ Players.LocalPlayer.CharacterAdded:Connect(function(char)
     Humanoid = char:WaitForChild("Humanoid")
     Root = char:WaitForChild("HumanoidRootPart")
 end)
-
-local function _try(t, k) return (t and t:FindFirstChild(k)) end
-
-local _CrateUI = _try(PG, "CrateUI")
-local _CrateMenu = _CrateUI and _try(_CrateUI, "CrateMenu")
-local _Container = _CrateMenu and _try(_CrateMenu, "Container")
-local _Inventory = _Container and _try(_Container, "Inventory")
-local _List = _Inventory and _try(_Inventory, "List")
-local _Templates = _CrateMenu and _try(_CrateMenu, "Templates")
-local _InvTemplate = _Templates and _try(_Templates, "InventoryTemplate")
-
-
 
 local farm = {}
 local positionList = {}
@@ -2037,115 +2022,6 @@ local function onCharacterAdded()
     end
 end
 
-GameUtil.Data = GameUtil.Data or {}
-if type(GameUtil.Data.equippedSkins) ~= "table" then
-    GameUtil.Data.equippedSkins = {}
-end
-setmetatable(GameUtil.Data.equippedSkins, {
-    __index = function() return { equippedName = "none", serial = "none" } end
-})
-
-local _RANK = { Common=7, Uncommon=6, Rare=5, Epic=4, Legendary=3, Exclusive=2, Item=1 }
-local _CARD_BG = 0.7
-
-local function _setCardEquippedState(card, isEquipped, rarity)
-    if not card then return end
-    if rarity == "Item" then
-        card.Equipped.Text = "USE"
-        card.Equipped.TextColor3 = ColorData.goodGreen
-        card.BackgroundTransparency = _CARD_BG
-        return
-    end
-    card.Equipped.Text = isEquipped and "UNEQUIP" or "EQUIP"
-    card.Equipped.TextColor3 = isEquipped and ColorData.badRed or ColorData.goodGreen
-    card.BackgroundTransparency = _CARD_BG
-end
-
-local function _toggleEquipVisual(skinName)
-    if not (_List and _InvTemplate) then return end
-    local def = SkinData[skinName]
-    if not def then return end
-    if def.rarity == "Item" then
-        local itemCard = _List:FindFirstChild(skinName)
-        _setCardEquippedState(itemCard, false, "Item")
-        return
-    end
-    local slot = def.typeOf
-    local current = GameUtil.Data.equippedSkins[slot] or {equippedName="none", serial="none"}
-
-    if current.equippedName == skinName then
-        GameUtil.Data.equippedSkins[slot] = {equippedName="none", serial="none"}
-        local thisCard = _List:FindFirstChild(skinName)
-        _setCardEquippedState(thisCard, false, def.rarity)
-        return
-    end
-    if current.equippedName ~= "none" then
-        local prevCard = _List:FindFirstChild(current.equippedName)
-        if prevCard then
-            local prevDef = SkinData[current.equippedName]
-            _setCardEquippedState(prevCard, false, prevDef and prevDef.rarity)
-        end
-    end
-    GameUtil.Data.equippedSkins[slot] = {equippedName = skinName, serial = "visual"}
-    local thisCard = _List:FindFirstChild(skinName)
-    _setCardEquippedState(thisCard, true, def.rarity)
-end
-
-local function _addSkinCard(skinName, qty)
-    if not (_List and _InvTemplate) then return end
-    qty = tonumber(qty) or 1
-    local def = SkinData[skinName]
-    if not def then return end
-
-    local existing = _List:FindFirstChild(skinName)
-    if existing then
-        local newQ = (existing:GetAttribute("Quantity") or 0) + qty
-        existing:SetAttribute("Quantity", newQ)
-        existing.Quantity.Text = ("x%d"):format(newQ)
-        return
-    end
-
-    local clone = _InvTemplate:Clone()
-    clone.BackgroundTransparency = _CARD_BG
-    clone.Name = skinName
-    clone:SetAttribute("Quantity", qty)
-
-    clone.Label.Text = skinName
-    clone.Label.BackgroundColor3 = ColorData.crateColors[def.rarity] or Color3.new(0,0,0)
-    clone.ImageLabel.Image = def.image or ""
-    clone.Quantity.Text = ("x%d"):format(qty)
-
-    local eq = GameUtil.Data.equippedSkins[def.typeOf]
-    local isEquipped = (eq and eq.equippedName ~= "none" and eq.equippedName == skinName)
-    _setCardEquippedState(clone, isEquipped, def.rarity)
-
-    clone.Activated:Connect(function()
-        _toggleEquipVisual(skinName)
-    end)
-
-    local sortValue = _Inventory and _Inventory:FindFirstChild("sort") and _Inventory.sort.Value or "All"
-    clone.Visible = (def.typeOf == sortValue or sortValue == "All")
-
-    local id = SkinIDS[skinName]
-    local rank = _RANK[def.rarity] or 0
-    clone.LayoutOrder = (tonumber(id) or 0) + rank * 100000
-
-    clone.Visible = true
-    clone.Parent = _List
-end
-
-local function FillSkinsInventoryUI(quantityPerSkin)
-    if not (_List and _InvTemplate) then
-        return
-    end
-    quantityPerSkin = tonumber(quantityPerSkin) or 1
-    for skinName, def in pairs(SkinData) do
-        if typeof(skinName) == "string" and def and def.image and def.rarity and def.typeOf then
-            pcall(_addSkinCard, skinName, quantityPerSkin)
-        end
-    end
-end
-
 local Fluent = loadstring(game:HttpGet("https://github.com/dawid-scripts/Fluent/releases/latest/download/main.lua"))()
 local SaveManager = loadstring(game:HttpGet("https://raw.githubusercontent.com/dawid-scripts/Fluent/master/Addons/SaveManager.lua"))()
 local InterfaceManager = loadstring(game:HttpGet("https://raw.githubusercontent.com/dawid-scripts/Fluent/master/Addons/InterfaceManager.lua"))()
@@ -2817,12 +2693,6 @@ Tabs.Extra:AddToggle("AutoRebirth", {
     end
 })
 
-local function isOnSpawnScreen()
-    local sg = PG:FindFirstChild("SpawnGui")
-    return sg and sg.Enabled == true
-end
-
-
 Tabs.Extra:AddToggle("AutoBedSpawn", {
     Title = "Auto Bed Spawn",
     Default = false,
@@ -2985,16 +2855,9 @@ Tabs.Extra:AddToggle("NoClip", {
     end
 })
 
-Tabs.Extra:AddButton({
-    Title = "Get every skin (inventory UI only)",
-    Callback = function()
-        FillSkinsInventoryUI(1)
-    end
-})
-
 Tabs.Extra:AddSection("Inventory Dropper")
 
-local DropInvDD = Tabs.Extra:AddDropdown("InvDropSelect", {
+Tabs.Extra:AddDropdown("InvDropSelect", {
     Title = "Select Item to Drop",
     Values = getInventoryNameList(),
     Default = nil,
@@ -3002,19 +2865,6 @@ local DropInvDD = Tabs.Extra:AddDropdown("InvDropSelect", {
         selectedDropItem = v
     end
 })
-
-Tabs.Extra:AddButton({
-    Title = "Refresh Inventory List",
-    Callback = function()
-        local values = getInventoryNameList()
-        if DropInvDD and DropInvDD.SetValues then
-            DropInvDD:SetValues(values)
-        else
-            Notify("Dropper", "Could not refresh dropdown (SetValues missing).")
-        end
-    end
-})
-
 Tabs.Extra:AddToggle("AutoDropSelected", {
     Title = "Auto Drop Selected",
     Default = false,
