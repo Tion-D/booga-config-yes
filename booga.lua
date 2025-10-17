@@ -3112,6 +3112,7 @@ Tabs.Extra:AddToggle("AutohittWithResources", {
         end
     end
 })
+
 Tabs.Extra:AddToggle("TPAllToChest", {
     Title = "Teleport everything to chest",
     Default = false,
@@ -3119,62 +3120,49 @@ Tabs.Extra:AddToggle("TPAllToChest", {
         S.tpAllToChest = v
 
         if v then
-            local foundChest = GetDeployable("Chest", 150, false)
-            if not foundChest then
+            chest = GetDeployable("Chest", 1000, false)
+            if not chest then
                 S.tpAllToChest = false
-                Notify("Looting", "No chest found within 150 studs.")
+                Notify("Looting", "No chest found within 1000 studs.")
                 return
+            else
+                Notify("Looting", "Teleporting all items to chest…")
             end
 
-            chest = foundChest
-            Notify("Looting", "Teleporting all items to chest.")
-
-            if Threads.tpAllTask then
-                pcall(task.cancel, Threads.tpAllTask)
-            end
-
+            if Threads.tpAllTask then pcall(task.cancel, Threads.tpAllTask) end
             Threads.tpAllTask = task.spawn(function()
-                while S.tpAllToChest do
-                    if not chest or not chest.Parent then
-                        chest = GetDeployable("Chest", 150, false)
-                        if not chest then
-                            S.tpAllToChest = false
-                            Notify("Looting", "Chest was removed, stopping.")
-                            break
-                        end
-                    end
-
+                while S.tpAllToChest and chest and chest.Parent do
                     local ItemsFolder = workspace:FindFirstChild("Items")
                     if ItemsFolder then
                         for _, item in ipairs(ItemsFolder:GetChildren()) do
-                            if not S.tpAllToChest then break end
-                            if not chest or not chest.Parent then break end
-                            if not item or not item.Parent then continue end
-                            
-                            local id = item:GetAttribute("EntityID")
-                            if id then
+                            local id, t0 = item:GetAttribute("EntityID"), os.clock()
+                            while item.Parent == ItemsFolder and not id and (os.clock() - t0) < 2 do
+                                task.wait()
+                                id = item:GetAttribute("EntityID")
+                            end
+                            if id and chest and chest.Parent then
                                 Packets.ForceInteract.send(id)
-                                
-                                local success = pcall(function()
-                                    item:PivotTo(chest:GetPivot() * CFrame.new(0, 3, 0))
+                                pcall(function()
+                                    local pivot = chest:GetPivot()
+                                    if item:IsA("Model") then
+                                        item:PivotTo(pivot)
+                                    elseif item:IsA("BasePart") then
+                                        item.CFrame = pivot
+                                    end
                                 end)
-                                
                                 Packets.ForceInteract.send()
-                                
-                                task.wait(0.05)
+                                task.wait()
                             end
                         end
                     end
-                    task.wait(0.1)
+                    task.wait()
                 end
             end)
-
         else
             if Threads.tpAllTask then
                 pcall(task.cancel, Threads.tpAllTask)
                 Threads.tpAllTask = nil
             end
-            chest = nil
         end
     end
 })
@@ -3591,25 +3579,20 @@ Conns.itemsChildAdded = Workspace.Items.ChildAdded:Connect(function(item)
         end)
         return
     end
-    if S.tpAllToChest and chest and chest.Parent then
+    if S.tpAllToChest and chest then
         task.spawn(function()
+            local t0 = os.clock()
             local id = item:GetAttribute("EntityID")
-            local attempts = 0
-            while not id and attempts < 30 do
-                task.wait(0.1)
+            while item.Parent == workspace.Items and not id and (os.clock() - t0) < 3 do
+                task.wait()
                 id = item:GetAttribute("EntityID")
-                attempts = attempts + 1
             end
-            
-            if id then
-                while S.tpAllToChest and item and item.Parent == workspace.Items and chest and chest.Parent do
-                    Packets.ForceInteract.send(id)
-                    pcall(function() 
-                        item:PivotTo(chest:GetPivot() * CFrame.new(0, 3, 0))
-                    end)
-                    Packets.ForceInteract.send()
-                    task.wait(0.05)
-                end
+            if not id then return end
+            while S.tpAllToChest and chest and item and item.Parent == workspace.Items do
+                Packets.ForceInteract.send(id)
+                pcall(function() item:PivotTo(chest:GetPivot()) end)
+                Packets.ForceInteract.send()
+                task.wait()
             end
         end)
         return
