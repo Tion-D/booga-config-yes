@@ -170,7 +170,9 @@ local CFG = {
   GOLD_ID = 597,
   CRYSTAL_ID = 436,
   GOD_AXE_ID = 454,
-  GOD_PICK_ID = 132
+  GOD_PICK_ID = 132,
+  NEED_GOLD = 12,
+  NEED_CRYSTAL = 3
 }
 
 local tween = nil
@@ -2125,15 +2127,10 @@ local function ensureMaterials()
     end
 end
 
-local function SafeGetQuantity(name)
-    local q = GetQuantity(name)
-    return tonumber(q) or 0
-end
-
 local function craftAndEquipFromHotbar()
     ensureMaterials()
 
-    if SafeGetQuantity("Gold") < CFG.NEED_GOLD or SafeGetQuantity("Crystal Chunk") < CFG.NEED_CRYSTAL then
+    if GetQuantity("Gold") < CFG.NEED_GOLD or GetQuantity("Crystal Chunk") < CFG.NEED_CRYSTAL then
         Notify("Auto Retool", "Missing mats (need 12 Gold + 3 Crystal).")
         return false
     end
