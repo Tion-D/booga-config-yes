@@ -146,6 +146,15 @@ local AUTO_SPAWN_ENABLED = true
 local SPAWN_DELAY = 0.5
 local autoSpawnConnection = nil
 
+local GOLD_ID, CRYSTAL_ID, GOD_AXE_ID, GOD_PICK_ID = 597, 436, 454, 132
+local TOOL_NEED_GOLD, TOOL_NEED_CRYSTAL = 12, 3
+
+local autoRetoolEnabled = false
+local retoolChoice = "God Pick"
+local retoolThread
+
+local Hotbar, EquippedSlot = {}, nil
+
 local POTION_RECIPES = {
     ["Poison"] = { ["Prickly Pear"] = 3, ["Magnetite Bar"] = 1 },
     ["Swift"] = { ["Crystal Chunk"] = 1, ["Cloudberry"] = 3 },
@@ -399,7 +408,6 @@ oldNewIndex = hookmetamethod(game, "__newindex", function(self, idx, val)
     return oldNewIndex(self, idx, val)
 end)
 
-
 local function setMaxSlope(enabled)
     maxSlopeEnabled = enabled
     if LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("Humanoid") then
@@ -523,7 +531,6 @@ local function wasteFoodLoop()
         end
     end
 end
-
 
 local function deleteItems()
     local itemsFolder = Workspace:FindFirstChild("Items")
@@ -2023,6 +2030,161 @@ local function onCharacterAdded()
     end
 end
 
+local function idToName(id)
+    for name, data in pairs(ItemData) do
+        if (type(data) == "table" and (data.id == id or data.itemID == id)) or ItemIDS[name] == id then
+            return name
+        end
+    end
+    return nil
+end
+
+local function nameToCraftID(name)
+    return (name == "God Axe") and GOD_AXE_ID or GOD_PICK_ID
+end
+
+local function isChosenToolName(name)
+    return (name == "God Axe" and retoolChoice == "God Axe")
+        or (name == "God Pick" and retoolChoice == "God Pick")
+end
+
+local _hbConns = {}
+pcall(function()
+    _hbConns.insert = Packets.ToolInsert.listen(function(p)
+        Hotbar[p.index] = { itemID = p.itemID, qty = p.quantity or 0 }
+    end)
+    _hbConns.rem = Packets.ToolRemoved.listen(function(slot)
+        Hotbar[slot] = nil
+        if EquippedSlot == slot then EquippedSlot = nil end
+    end)
+    _hbConns.q = Packets.ToolQuantityChanged.listen(function(p)
+        if Hotbar[p.slot] then Hotbar[p.slot].qty = p.quantity end
+    end)
+    _hbConns.eq = Packets.ToolEquipped.listen(function(slot)
+        EquippedSlot = slot
+    end)
+    _hbConns.uneq = Packets.ToolUnequipped.listen(function(slot)
+        if EquippedSlot == slot then EquippedSlot = nil end
+    end)
+    _hbConns.swap = Packets.ToolSwapped.listen(function(p)
+        Hotbar[p.key1], Hotbar[p.key2] = Hotbar[p.key2], Hotbar[p.key1]
+        if EquippedSlot == p.key1 then EquippedSlot = p.key2
+        elseif EquippedSlot == p.key2 then EquippedSlot = p.key1 end
+    end)
+end)
+
+local function hotbarHasChosenTool()
+    for slot, info in pairs(Hotbar) do
+        local n = info.itemID and idToName(info.itemID)
+        if n and isChosenToolName(n) then
+            return true, slot
+        end
+    end
+    return false, nil
+end
+
+local function equippedIsChosenTool()
+    if not EquippedSlot then
+        local t = LocalPlayer.Character and LocalPlayer.Character:FindFirstChildOfClass("Tool")
+        if t and isChosenToolName(t.Name) then return true end
+        return false
+    end
+    local info = Hotbar[EquippedSlot]
+    if not info then return false end
+    local n = info.itemID and idToName(info.itemID)
+    return n and isChosenToolName(n) or false
+end
+
+local function inventoryHasChosenTool()
+    for _, data in pairs(GameUtil.getData().inventory) do
+        if data and data.name and isChosenToolName(data.name) then
+            return true
+        end
+    end
+    return false
+end
+
+local function ensureMaterials()
+    local haveGold  = tonumber(GetQuantity("Gold") or 0) or 0
+    local haveCrys  = tonumber(GetQuantity("Crystal Chunk") or 0) or 0
+
+    local needGold  = math.max(0, TOOL_NEED_GOLD - haveGold)
+    local needCrys  = math.max(0, TOOL_NEED_CRYSTAL - haveCrys)
+
+    for i = 1, needGold do
+        Packets.PurchaseFromShop.send(GOLD_ID)
+        task.wait()
+    end
+    for i = 1, needCrys do
+        Packets.PurchaseFromShop.send(CRYSTAL_ID)
+        task.wait()
+    end
+end
+
+local function moveToSlotAndEquip(name, targetSlot)
+    targetSlot = targetSlot or 1
+    local _, idx
+    for i, data in pairs(GameUtil.getData().inventory) do
+        if data and data.name == name then
+            idx = i
+            break
+        end
+    end
+    if not idx then return false end
+
+    Packets.MoveItem.send({ index = idx, slot = targetSlot })
+    task.wait(0.15)
+    Packets.EquipTool.send(targetSlot)
+    return true
+end
+
+local function craftChosenTool()
+    local craftID = nameToCraftID(retoolChoice)
+
+    ensureMaterials()
+
+    local gOK = (tonumber(GetQuantity("Gold") or 0) or 0)   >= TOOL_NEED_GOLD
+    local cOK = (tonumber(GetQuantity("Crystal Chunk") or 0) or 0) >= TOOL_NEED_CRYSTAL
+    if not (gOK and cOK) then
+        Notify("Auto Retool", "Not enough materials after purchase.")
+        return false
+    end
+
+    Packets.CraftItem.send(craftID)
+    task.wait(0.5)
+
+    local t0 = os.clock()
+    while os.clock() - t0 < 3 do
+        if inventoryHasChosenTool() then break end
+        task.wait(0.1)
+    end
+
+    if not inventoryHasChosenTool() then
+        Notify("Auto Retool", "Craft did not appear in inventory.")
+        return false
+    end
+
+    moveToSlotAndEquip(retoolChoice, 1)
+    return true
+end
+
+local function noToolInHotbar()
+    local has, _ = hotbarHasChosenTool()
+    return not has and not inventoryHasChosenTool() and not equippedIsChosenTool()
+end
+
+local function autoRetoolLoop()
+    while autoRetoolEnabled do
+        local hasInHotbar = hotbarHasChosenTool()
+        if not equippedIsChosenTool() and not hasInHotbar and not inventoryHasChosenTool() then
+            craftChosenTool()
+        elseif not equippedIsChosenTool() and (hasInHotbar or inventoryHasChosenTool()) then
+            moveToSlotAndEquip(retoolChoice, 1)
+        end
+        task.wait(0.5)
+    end
+end
+
 local Fluent = loadstring(game:HttpGet("https://github.com/dawid-scripts/Fluent/releases/latest/download/main.lua"))()
 local SaveManager = loadstring(game:HttpGet("https://raw.githubusercontent.com/dawid-scripts/Fluent/master/Addons/SaveManager.lua"))()
 local InterfaceManager = loadstring(game:HttpGet("https://raw.githubusercontent.com/dawid-scripts/Fluent/master/Addons/InterfaceManager.lua"))()
@@ -2670,7 +2832,7 @@ Tabs.Extra:AddButton({
     end
 })
 
-Tabs.Extra:AddSection("Extras")
+Tabs.Extra:AddSection("Automation")
 
 
 Tabs.Extra:AddToggle("AutoRebirth", {
@@ -2729,6 +2891,90 @@ Tabs.Extra:AddToggle("AutoBedSpawn", {
         end
     end
 })
+
+
+Tabs.Extra:AddToggle("AutohittWithResources", {
+    Title = "Autohit Closest Resource",
+    Default = false,
+    Callback = function(value)
+        interactingWithResources = value
+        if value then
+            task.spawn(function()
+                while interactingWithResources do
+                    interactWithNearbyResources(100)
+                    task.wait()
+                end
+            end)
+        end
+    end
+})
+
+Tabs.Extra:AddToggle("AutoFish", {
+    Title = "Auto Fish",
+    Default = false,
+    Callback = function(v)
+        autoFishEnabled = v
+        if v then
+            startAutoFishing()
+        else
+            if rodBubbleConn then rodBubbleConn:Disconnect(); rodBubbleConn = nil end
+            if autoFishLoop then pcall(task.cancel, autoFishLoop); autoFishLoop = nil end
+        end
+    end
+})
+
+
+Tabs.Extra:AddInput("SetMaxFPS", {
+    Title = "Set Max FPS",
+    Placeholder = "Enter FPS",
+    Default = "",
+    Numeric = false,
+    Callback = function(Text)
+        local fps = tonumber(Text)
+        if fps then
+            setfpscap(fps)
+        else
+            Notify("Invalid fps value")
+        end
+    end
+})
+
+Tabs.Extra:AddToggle("AutoHeal", {
+    Title = "Auto Heal",
+    Default = false,
+    Callback = function(value)
+        autoHealEnabled = value
+        if value then
+            task.spawn(autoHeal)
+        end
+    end
+})
+
+Tabs.Extra:AddToggle("SpeedToggle", {
+    Title = "Water Walker",
+    Default = false,
+    Callback = function(value)
+        setWalkSpeed(value)
+    end
+})
+
+Tabs.Extra:AddToggle("SlopeToggle", {
+    Title = "Mountain Climber",
+    Default = false,
+    Callback = function(value)
+        setMaxSlope(value)
+    end
+})
+
+Tabs.Extra:AddToggle("NoClip", {
+    Title = "NoClip Doors and old Board",
+    Default = false,
+    Callback = function(value)
+        noclipDoors(value)
+    end
+})
+
+Tabs.Extra:AddSection("Looting")
 
 Tabs.Extra:AddToggle("PickupItems", {
     Title = "Pickup everything",
@@ -2795,86 +3041,6 @@ Tabs.Extra:AddToggle("PickupRawGold", {
     end
 })
 
-Tabs.Extra:AddToggle("AutohittWithResources", {
-    Title = "Autohit Closest Resource",
-    Default = false,
-    Callback = function(value)
-        interactingWithResources = value
-        if value then
-            task.spawn(function()
-                while interactingWithResources do
-                    interactWithNearbyResources(100)
-                    task.wait()
-                end
-            end)
-        end
-    end
-})
-
-Tabs.Extra:AddToggle("AutoFish", {
-    Title = "Auto Fish",
-    Default = false,
-    Callback = function(v)
-        autoFishEnabled = v
-        if v then
-            startAutoFishing()
-        else
-            if rodBubbleConn then rodBubbleConn:Disconnect(); rodBubbleConn = nil end
-            if autoFishLoop then pcall(task.cancel, autoFishLoop); autoFishLoop = nil end
-        end
-    end
-})
-
-Tabs.Extra:AddInput("SetMaxFPS", {
-    Title = "Set Max FPS",
-    Placeholder = "Enter FPS",
-    Default = "",
-    Numeric = false,
-    Callback = function(Text)
-        local fps = tonumber(Text)
-        if fps then
-            setfpscap(fps)
-        else
-            Notify("Invalid fps value")
-        end
-    end
-})
-
-Tabs.Extra:AddToggle("AutoHeal", {
-    Title = "Auto Heal",
-    Default = false,
-    Callback = function(value)
-        autoHealEnabled = value
-        if value then
-            task.spawn(autoHeal)
-        end
-    end
-})
-
-Tabs.Extra:AddToggle("SpeedToggle", {
-    Title = "Water Walker",
-    Default = false,
-    Callback = function(value)
-        setWalkSpeed(value)
-    end
-})
-
-Tabs.Extra:AddToggle("SlopeToggle", {
-    Title = "Mountain Climber",
-    Default = false,
-    Callback = function(value)
-        setMaxSlope(value)
-    end
-})
-
-Tabs.Extra:AddToggle("NoClip", {
-    Title = "NoClip Doors and old Board",
-    Default = false,
-    Callback = function(value)
-        noclipDoors(value)
-    end
-})
-
 Tabs.Extra:AddSection("Inventory Dropper")
 
 Tabs.Extra:AddDropdown("InvDropSelect", {
@@ -2936,6 +3102,33 @@ Tabs.Extra:AddToggle("TPDropToChestToggle", {
     end
 })
 
+Tabs.Extra:AddSection("Auto Retool")
+
+Tabs.Extra:AddDropdown("RetoolChoice", {
+    Title = "Choose Tool",
+    Values = { "God Axe", "God Pick" },
+    Default = retoolChoice,
+    Callback = function(v)
+        retoolChoice = v
+        Notify("Auto Retool", "Selected: " .. v)
+    end
+})
+
+Tabs.Extra:AddToggle("AutoRetool", {
+    Title = "Auto Retool",
+    Default = false,
+    Callback = function(v)
+        autoRetoolEnabled = v
+        if v then
+            if retoolThread then pcall(task.cancel, retoolThread) end
+            retoolThread = task.spawn(autoRetoolLoop)
+            Notify("Auto Retool", "Enabled")
+        else
+            if retoolThread then pcall(task.cancel, retoolThread); retoolThread = nil end
+            Notify("Auto Retool", "Disabled")
+        end
+    end
+})
 
 Tabs.Extra:AddSection("Make Farm (turn off cam lock, made by Zam)")
 
