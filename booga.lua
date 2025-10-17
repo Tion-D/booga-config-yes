@@ -3112,7 +3112,6 @@ Tabs.Extra:AddToggle("AutohittWithResources", {
         end
     end
 })
-
 Tabs.Extra:AddToggle("TPAllToChest", {
     Title = "Teleport everything to chest",
     Default = false,
@@ -3120,33 +3119,53 @@ Tabs.Extra:AddToggle("TPAllToChest", {
         S.tpAllToChest = v
 
         if v then
-            local chest = GetDeployable("Chest", 150, false)
-            if not chest then
+            local foundChest = GetDeployable("Chest", 150, false)
+            if not foundChest then
                 S.tpAllToChest = false
                 Notify("Looting", "No chest found within 150 studs.")
                 return
-            else
-                Notify("Looting", "Teleporting all items to chest.")
             end
+
+            chest = foundChest
+            Notify("Looting", "Teleporting all items to chest.")
 
             if Threads.tpAllTask then
                 pcall(task.cancel, Threads.tpAllTask)
             end
 
             Threads.tpAllTask = task.spawn(function()
-                while S.tpAllToChest and chest and chest.Parent do
+                while S.tpAllToChest do
+                    if not chest or not chest.Parent then
+                        chest = GetDeployable("Chest", 150, false)
+                        if not chest then
+                            S.tpAllToChest = false
+                            Notify("Looting", "Chest was removed, stopping.")
+                            break
+                        end
+                    end
+
                     local ItemsFolder = workspace:FindFirstChild("Items")
                     if ItemsFolder then
                         for _, item in ipairs(ItemsFolder:GetChildren()) do
+                            if not S.tpAllToChest then break end
+                            if not chest or not chest.Parent then break end
+                            if not item or not item.Parent then continue end
+                            
                             local id = item:GetAttribute("EntityID")
                             if id then
-                                pcall(function()
-                                    item:PivotTo(chest:GetPivot())
+                                Packets.ForceInteract.send(id)
+                                
+                                local success = pcall(function()
+                                    item:PivotTo(chest:GetPivot() * CFrame.new(0, 3, 0))
                                 end)
+                                
+                                Packets.ForceInteract.send()
+                                
+                                task.wait(0.05)
                             end
                         end
                     end
-                    task.wait()
+                    task.wait(0.1)
                 end
             end)
 
@@ -3155,6 +3174,7 @@ Tabs.Extra:AddToggle("TPAllToChest", {
                 pcall(task.cancel, Threads.tpAllTask)
                 Threads.tpAllTask = nil
             end
+            chest = nil
         end
     end
 })
@@ -3571,20 +3591,25 @@ Conns.itemsChildAdded = Workspace.Items.ChildAdded:Connect(function(item)
         end)
         return
     end
-    if S.tpAllToChest and chest then
+    if S.tpAllToChest and chest and chest.Parent then
         task.spawn(function()
-            local t0 = os.clock()
             local id = item:GetAttribute("EntityID")
-            while item.Parent == workspace.Items and not id and (os.clock() - t0) < 3 do
-                task.wait()
+            local attempts = 0
+            while not id and attempts < 30 do
+                task.wait(0.1)
                 id = item:GetAttribute("EntityID")
+                attempts = attempts + 1
             end
-            if not id then return end
-            while S.tpAllToChest and chest and item and item.Parent == workspace.Items do
-                Packets.ForceInteract.send(id)
-                pcall(function() item:PivotTo(chest:GetPivot()) end)
-                Packets.ForceInteract.send()
-                task.wait()
+            
+            if id then
+                while S.tpAllToChest and item and item.Parent == workspace.Items and chest and chest.Parent do
+                    Packets.ForceInteract.send(id)
+                    pcall(function() 
+                        item:PivotTo(chest:GetPivot() * CFrame.new(0, 3, 0))
+                    end)
+                    Packets.ForceInteract.send()
+                    task.wait(0.05)
+                end
             end
         end)
         return
