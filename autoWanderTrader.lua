@@ -19,6 +19,7 @@ local RS = game:GetService("ReplicatedStorage")
 local Http = game:GetService("HttpService")
 local PathfindingService = game:GetService("PathfindingService")
 local RunService = game:GetService("RunService")
+local TweenService = game:GetService("TweenService")
 local LP = Players2.LocalPlayer
 
 local Events = RS:WaitForChild("Events")
@@ -299,6 +300,15 @@ local function hopTo(jobId)
     return false, "timeout"
 end
 
+local function setNoclip(char, on)
+    if not char then return end
+    for _, p in ipairs(char:GetDescendants()) do
+        if p:IsA("BasePart") and p.CanCollide ~= (not on) then
+            p.CanCollide = not on
+        end
+    end
+end
+
 local function waitForSpawned(timeout)
     timeout = timeout or 25
     local t0 = os.clock()
@@ -452,107 +462,120 @@ local function shortLedgeAhead(hrp)
     return low and not high
 end
 local function nearlyStopped(a, b) return (a - b).Magnitude < 0.15 end
-local function moveAndJumpTo(hum, hrp, targetPos)
-    local arriveRadius = 2.5
-    local segDeadline = os.clock() + 8.0
-    local moveFinished = false
-    
-    if not hrp or not hrp.Parent then return end
-    
-    local here = hrp.Position
-    local look = Vector3.new(targetPos.X, here.Y, targetPos.Z)
-    if (look - here).Magnitude > 0.01 then
-        hrp.CFrame = CFrame.new(here, look)
+
+local function tweenTo(hrp, targetPos, opts)
+    if not hrp or not hrp.Parent then return false end
+
+    local speed = (opts and opts.speed) 
+        or (WalkSpeedEnabled and WalkSpeedValue) 
+        or (LP.Character and LP.Character:FindFirstChildOfClass("Humanoid") and LP.Character.Humanoid.WalkSpeed) 
+        or 16
+
+    local arriveRadius = (opts and opts.arriveRadius) or 2.5
+    local maxDuration  = (opts and opts.maxDuration)  or 8.0
+
+    local startPos = hrp.Position
+    local delta = (targetPos - startPos)
+    local dist = delta.Magnitude
+    if dist <= arriveRadius then return true end
+
+    local flatLook = Vector3.new(targetPos.X, startPos.Y, targetPos.Z)
+    if (flatLook - startPos).Magnitude > 0.001 then
+        hrp.CFrame = CFrame.new(startPos, flatLook)
     end
-    hum:MoveTo(targetPos)
-    local conn
-    conn = hum.MoveToFinished:Connect(function()
-        moveFinished = true
-        if conn then conn:Disconnect() end
-    end)
-    local lastPos = hrp.Position
-    local lastCheck = os.clock()
-    local stuckCount = 0
-    
-    while not moveFinished and os.clock() < segDeadline do
-        if not hrp or not hrp.Parent or not hum or hum.Health <= 0 then break end
-        
-        local delta = (targetPos - hrp.Position)
-        if delta.Magnitude <= arriveRadius then break end
-        hum:MoveTo(targetPos)
-        if shortLedgeAhead(hrp) then hum.Jump = true end
-        if os.clock() - lastCheck >= 0.4 then
-            if hrp and hrp.Parent and hrp.Position and nearlyStopped(hrp.Position, lastPos) then
-                stuckCount += 1
-                hum.Jump = true
-                hrp.AssemblyLinearVelocity += (delta.Unit * 8) + Vector3.new(0, 3, 0)
-                hrp.CFrame += NUDGE * 2
-                
-                if stuckCount >= 3 then
-                    hrp.CFrame += Vector3.new(0, 2, 0) + (delta.Unit * 3)
-                    stuckCount = 0
-                end
-            else
-                stuckCount = 0
-            end
-            if hrp and hrp.Parent then
-                lastPos = hrp.Position
-            end
-            lastCheck = os.clock()
+
+    local duration = math.clamp(dist / math.max(speed, 1), 0.05, maxDuration)
+
+    local tween = TweenService:Create(
+        hrp,
+        TweenInfo.new(duration, Enum.EasingStyle.Linear, Enum.EasingDirection.Out),
+        { CFrame = CFrame.new(targetPos) }
+    )
+    tween:Play()
+
+    local done = false
+    local conn; conn = tween.Completed:Connect(function() done = true end)
+
+    local deadline = os.clock() + duration + 2.0
+    while not done and os.clock() < deadline do
+        if not hrp or not hrp.Parent then
+            if conn then conn:Disconnect() end
+            return false
         end
-        task.wait(0.05)
+        if (hrp.Position - targetPos).Magnitude <= arriveRadius then
+            tween:Cancel()
+            if conn then conn:Disconnect() end
+            return true
+        end
+        RunService.Heartbeat:Wait()
     end
+
     if conn then conn:Disconnect() end
+    return (hrp and hrp.Parent and (hrp.Position - targetPos).Magnitude <= arriveRadius) or false
 end
+
 local function followPathTo(npc)
     if not LP:GetAttribute("hasSpawned") then
         if not waitForSpawned(25) then return "failed" end
     end
 
     local char = LP.Character or LP.CharacterAdded:Wait()
-    local hum  = char:WaitForChild("Humanoid")
-    local hrp  = char:FindFirstChild("HumanoidRootPart")
+    local hum = char:WaitForChild("Humanoid")
+    local hrp = char:FindFirstChild("HumanoidRootPart")
     if not (hum and hrp) then return "failed" end
+
     hum.AutoRotate = true
+    hum:Move(Vector3.new(), true)
+
     setWalkSpeed(true)
     setMaxSlope(true)
+
     local t0 = os.clock()
-    local function alive() return hum and hum.Health > 0 end
     local STOP_DISTANCE = 10
+    local function alive() return hum and hum.Health > 0 end
 
     while npc and npc.Parent and alive() do
         if os.clock() - t0 > 300 then return "timeout" end
 
-        local tPos = npc:GetPivot().Position
-        local distToTrader = (hrp.Position - tPos).Magnitude
-        
+        local traderPos = npc:GetPivot().Position
+        local distToTrader = (hrp.Position - traderPos).Magnitude
         if distToTrader <= STOP_DISTANCE then
             hum:Move(Vector3.new(), true)
             print("[TraderHopper] Reached trader! Distance:", math.floor(distToTrader), "studs")
             return "arrived"
         end
 
-        local wps = computePath(hrp.Position, tPos)
+        local wps = computePath(hrp.Position, traderPos)
         if not wps or #wps == 0 then
-            task.wait(0.25)
+            task.wait(0.2)
         else
             for _, w in ipairs(wps) do
                 if not alive() then break end
-                if segmentSlopeDegrees(hrp.Position, w.Position) > MAX_ALLOWED_SLOPE then break end
-                
-                local currentDist = (hrp.Position - tPos).Magnitude
-                if currentDist <= STOP_DISTANCE then
+
+                if segmentSlopeDegrees(hrp.Position, w.Position) > MAX_ALLOWED_SLOPE then
+                    break
+                end
+
+                if (hrp.Position - traderPos).Magnitude <= STOP_DISTANCE then
                     hum:Move(Vector3.new(), true)
-                    print("[TraderHopper] Reached trader! Distance:", math.floor(currentDist), "studs")
+                    print("[TraderHopper] Reached trader! Distance:", math.floor((hrp.Position - traderPos).Magnitude), "studs")
                     return "arrived"
                 end
-                
-                moveAndJumpTo(hum, hrp, w.Position)
-                
+                setNoclip(char, true)
+                local ok = tweenTo(hrp, w.Position, { speed = WalkSpeedValue, arriveRadius = 2.5, maxDuration = 8 })
+                setNoclip(char, false)
+                if not ok then
+                    if hrp and hrp.Parent then
+                        hrp.CFrame = hrp.CFrame + Vector3.new(0, 2, 0)
+                    end
+                    break
+                end
+
                 if os.clock() - t0 > 300 then return "timeout" end
             end
         end
-        task.wait(0.05)
+
+        task.wait(0.03)
     end
     return "failed"
 end
