@@ -2125,10 +2125,15 @@ local function ensureMaterials()
     end
 end
 
+local function SafeGetQuantity(name)
+    local q = GetQuantity(name)
+    return tonumber(q) or 0
+end
+
 local function craftAndEquipFromHotbar()
     ensureMaterials()
 
-    if GetQuantity("Gold") < CFG.NEED_GOLD or GetQuantity("Crystal Chunk") < CFG.NEED_CRYSTAL then
+    if SafeGetQuantity("Gold") < CFG.NEED_GOLD or SafeGetQuantity("Crystal Chunk") < CFG.NEED_CRYSTAL then
         Notify("Auto Retool", "Missing mats (need 12 Gold + 3 Crystal).")
         return false
     end
