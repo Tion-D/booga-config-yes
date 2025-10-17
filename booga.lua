@@ -32,6 +32,7 @@ local LocalPlayer = game.Players.LocalPlayer
 local Humanoid = Character:WaitForChild("Humanoid")
 local Root = Character:WaitForChild("HumanoidRootPart")
 local PG = LocalPlayer:WaitForChild("PlayerGui")
+Humanoid:SetStateEnabled(Enum.HumanoidStateType.Swimming, false)
 
 Players.LocalPlayer.CharacterAdded:Connect(function(char)
     Character = char
@@ -185,8 +186,8 @@ local tweeningEnabled = false
 tweenSpeed = tonumber(tweenSpeed) or 1
 S.walkSpeed = tonumber(S.walkSpeed) or 16
 S.wasteLeavesTo = tonumber(S.wasteLeavesTo) or 50
-S.wasteWoodTo  = tonumber(S.wasteWoodTo)  or 50
-S.wasteLogTo   = tonumber(S.wasteLogTo)   or 50
+S.wasteWoodTo = tonumber(S.wasteWoodTo)  or 50
+S.wasteLogTo = tonumber(S.wasteLogTo)   or 50
 S.wasteFoodTo  = tonumber(S.wasteFoodTo)  or 50
 
 local POTION_RECIPES = {
