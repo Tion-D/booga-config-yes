@@ -37,12 +37,10 @@ Players.LocalPlayer.CharacterAdded:Connect(function(char)
     Character = char
     Humanoid = char:WaitForChild("Humanoid")
     Root = char:WaitForChild("HumanoidRootPart")
-end)
-local S = {
+end)local S = {
   farm = {},
   positionList = {},
   interactingWithResources = false,
-  walkingEnabled = false,
   walkingEnabled = false,
   selectedFileName = "Positions.txt",
 
@@ -144,7 +142,16 @@ local S = {
   retoolThread = nil,
 
   Hotbar = {},
-  EquippedSlot = nil
+  EquippedSlot = nil,
+
+  ultraPerfEnabled = false,
+  _perf = {
+      parts = {},
+      fx = {},
+      conns = {},
+      coverGui = nil,
+      _lighting = {}
+  }
 }
 
 local CFG = {
@@ -2339,12 +2346,6 @@ local function startUltraPerformance()
     _perfCullTree(game:GetService("Lighting"))
 
     _perfBindLiveCulling()
-
-    pcall(function()
-        if typeof(setfpscap) == "function" and (S.maxPerfFPS or 30) > 0 then
-            setfpscap(S.maxPerfFPS or 30)
-        end
-    end)
 
     Notify("Ultra Performance", "Cover + visual culling enabled.")
 end
