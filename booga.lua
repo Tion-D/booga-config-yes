@@ -79,16 +79,10 @@ local S = {
   tweenEnabled = false,
   posBlobs = {},
 
-  tween = nil,
-  tweenInfo = nil,
-  chest = nil,
-  tweenConn = nil,
-
   moving = false,
   fruit = "Bloodfruit",
   selectedFruit = nil,
   fruitOptions = {},
-  tweenSpeed = 1,
   walkSpeed = 16,
   trackingStartTime = nil,
 
@@ -170,6 +164,19 @@ local CFG = {
   TOOL_NEED_GOLD = 12,
   TOOL_NEED_CRYSTAL = 3
 }
+
+local tween = nil
+local tweenInfo = nil
+local chest = nil
+local tweenConn = nil
+local tweenSpeed = 1
+
+tweenSpeed = tonumber(tweenSpeed) or 1
+S.walkSpeed = tonumber(S.walkSpeed) or 16
+S.wasteLeavesTo = tonumber(S.wasteLeavesTo) or 50
+S.wasteWoodTo  = tonumber(S.wasteWoodTo)  or 50
+S.wasteLogTo   = tonumber(S.wasteLogTo)   or 50
+S.wasteFoodTo  = tonumber(S.wasteFoodTo)  or 50
 
 local POTION_RECIPES = {
     ["Poison"] = { ["Prickly Pear"] = 3, ["Magnetite Bar"] = 1 },
@@ -366,7 +373,7 @@ end
 
 local function autoEatSelectedFruit()
     local function autoEatLoop()
-        while S.S.autoEat do
+        while S.autoEat do
             local current = getHunger()
 
             if not S.fruit then
@@ -405,9 +412,9 @@ local function setWalkSpeed(enabled)
         local humanoid = LocalPlayer.Character:FindFirstChildOfClass("Humanoid")
         if humanoid then
             if not S.originalWalkSpeed then
-                S.originalWalkSpeed = humanoid.S.walkSpeed
+                S.originalWalkSpeed = Humanoid.WalkSpeed
             end
-            humanoid.S.walkSpeed = enabled and S.WalkSpeedValue or S.originalWalkSpeed
+            Humanoid.WalkSpeed = enabled and S.WalkSpeedValue or S.originalWalkSpeed
         end
     end
 end
@@ -417,7 +424,7 @@ oldNewIndex = hookmetamethod(game, "__newindex", function(self, idx, val)
     if not checkcaller() then
         local char = LocalPlayer.Character
         local hum = char and char:FindFirstChildOfClass("Humanoid")
-        if S.WalkSpeedEnabled and hum and self == hum and idx == "S.walkSpeed" then
+        if S.WalkSpeedEnabled and hum and self == hum and idx == "WalkSpeed" then
             val = S.WalkSpeedValue
         end
     end
@@ -809,7 +816,7 @@ local function campfireRefuelLoop()
     end
 end
 
-local function IcenodeS.farm()
+local function Icenodefarm()
     while task.wait(0.1) do
         local chunks = GetIceChunks()
         for x, v in next, chunks do
@@ -817,16 +824,16 @@ local function IcenodeS.farm()
                 Path:ComputeAsync(Root.Position, v:GetPivot().Position)
                 Root.Anchored = false
                 for m, n in next, Path:GetWaypoints() do
-                    S.tweenInfo = {MaxSpeed = Humanoid.S.walkSpeed, CFrame = CFrame.new(n.Position)}
-                    S.tween = TweenService:Create(
-                        Root, 
-                        S.tweenInfo.new((Root.Position - n.Position).Magnitude / (S.tweenInfo.MaxSpeed * (S.tweenSpeed/10)), Enum.EasingStyle.Linear),
-                        {CFrame = S.tweenInfo.CFrame * CFrame.new(0, Root.Size.Y, 0)}
+                    local moveParams = { MaxSpeed = Humanoid.WalkSpeed, CFrame = CFrame.new(n.Position) }
+                    local ti = TweenInfo.new(
+                        (Root.Position - n.Position).Magnitude / (moveParams.MaxSpeed * (tweenSpeed / 10)),
+                        Enum.EasingStyle.Linear
                     )
-                    S.tween:Play()
+                    local tween = TweenService:Create(Root, ti, { CFrame = moveParams.CFrame * CFrame.new(0, Root.Size.Y, 0) })
+                    tween:Play()
                     repeat
-                        S.tween.Completed:Wait()
-                    until not v or not v.Parent or S.tween.PlaybackState == Enum.PlaybackState.Completed
+                        tween.Completed:Wait()
+                    until not v or not v.Parent or tween.PlaybackState == Enum.PlaybackState.Completed
                 end
 
                 if v then
@@ -854,26 +861,26 @@ local function IcenodeS.farm()
             end
         end
 
-        if #chunks == 0 and S.chest then
+        if #chunks == 0 and chest then
             if not Root.Anchored then
-                Path:ComputeAsync(Root.Position, S.chest:GetPivot().Position)
+                Path:ComputeAsync(Root.Position, chest:GetPivot().Position)
                 for m, n in next, Path:GetWaypoints() do
-                    S.tweenInfo = {MaxSpeed = Humanoid.S.walkSpeed, CFrame = CFrame.new(n.Position)}
-                    S.tween = TweenService:Create(
+                    tweeninfo = {MaxSpeed = Humanoid.WalkSpeed, CFrame = CFrame.new(n.Position)}
+                    tween = TweenService:Create(
                         Root, 
-                        S.tweenInfo.new((Root.Position - n.Position).Magnitude / (S.tweenInfo.MaxSpeed * (S.tweenSpeed/10)), Enum.EasingStyle.Linear),
-                        {CFrame = S.tweenInfo.CFrame * CFrame.new(0, Root.Size.Y, 0)}
+                        tweeninfo.new((Root.Position - n.Position).Magnitude / (tweeninfo.MaxSpeed * (tweenSpeed/10)), Enum.EasingStyle.Linear),
+                        {CFrame = tweeninfo.CFrame * CFrame.new(0, Root.Size.Y, 0)}
                     )
-                    S.tween:Play()
+                    tween:Play()
                     repeat
-                        S.tween.Completed:Wait()
-                    until not S.chest or S.tween.PlaybackState == Enum.PlaybackState.Completed
+                        tween.Completed:Wait()
+                    until not chest or tween.PlaybackState == Enum.PlaybackState.Completed
                 end
                 Root.Anchored = true
             end
             
             if S.pickUpGoldEnabled then
-                for x, v in next, S.chest.Contents:GetChildren() do
+                for x, v in next, chest.Contents:GetChildren() do
                     if v.Name == "Gold" then
                         Packets.Pickup.send(v:GetAttribute("EntityID"))
                     end
@@ -883,7 +890,7 @@ local function IcenodeS.farm()
             if S.pressEnabled then
                 local deployable = GetDeployable("Coin Press", 25)
                 if deployable then
-                    for x, v in next, S.chest.Contents:GetChildren() do
+                    for x, v in next, chest.Contents:GetChildren() do
                         if v.Name == "Gold" then
                             Packets.Pickup.send(v:GetAttribute("EntityID"))
                             Packets.InteractStructure.send({
@@ -899,7 +906,7 @@ local function IcenodeS.farm()
     end
 end
 
-local function CavenodeS.farm()
+local function Cavenodefarm()
     while task.wait(0.5) do
         local chunks = GetCaveChunks()
         for x, v in next, chunks do
@@ -907,12 +914,12 @@ local function CavenodeS.farm()
                 Path:ComputeAsync(Root.Position, v:GetPivot().Position)
                 Root.Anchored = false
                 for m, n in next, Path:GetWaypoints() do
-                    S.tweenInfo = {MaxSpeed = Humanoid.S.walkSpeed, CFrame = CFrame.new(n.Position)}
-                    S.tween = TweenService:Create(Root, S.tweenInfo.new((Root.Position - n.Position).Magnitude / (S.tweenInfo.MaxSpeed * (S.tweenSpeed/10)), Enum.EasingStyle.Linear), {CFrame = S.tweenInfo.CFrame * CFrame.new(0, Root.Size.Y, 0)})
-                    S.tween:Play()
+                    tweeninfo = {MaxSpeed = Humanoid.WalkSpeed, CFrame = CFrame.new(n.Position)}
+                    tween = TweenService:Create(Root, tweeninfo.new((Root.Position - n.Position).Magnitude / (tweeninfo.MaxSpeed * (tweenSpeed/10)), Enum.EasingStyle.Linear), {CFrame = tweeninfo.CFrame * CFrame.new(0, Root.Size.Y, 0)})
+                    tween:Play()
                     repeat
-                        S.tween.Completed:Wait()
-                    until not v or not v.Parent or S.tween.PlaybackState == Enum.PlaybackState.Completed
+                        tween.Completed:Wait()
+                    until not v or not v.Parent or tween.PlaybackState == Enum.PlaybackState.Completed
                 end
 
                 if v then
@@ -931,16 +938,16 @@ local function CavenodeS.farm()
             end
         end
 
-        if #chunks == 0 and S.chest then
+        if #chunks == 0 and chest then
             if not Root.Anchored then
-                Path:ComputeAsync(Root.Position, S.chest:GetPivot().Position)
+                Path:ComputeAsync(Root.Position, chest:GetPivot().Position)
                 for m, n in next, Path:GetWaypoints() do
-                    S.tweenInfo = {MaxSpeed = Humanoid.S.walkSpeed, CFrame = CFrame.new(n.Position)}
-                    S.tween = TweenService:Create(Root, S.tweenInfo.new((Root.Position - n.Position).Magnitude / (S.tweenInfo.MaxSpeed * (S.tweenSpeed/10)), Enum.EasingStyle.Linear), {CFrame = S.tweenInfo.CFrame * CFrame.new(0, Root.Size.Y, 0)})
-                    S.tween:Play()
+                    tweeninfo = {MaxSpeed = Humanoid.WalkSpeed, CFrame = CFrame.new(n.Position)}
+                    tween = TweenService:Create(Root, tweeninfo.new((Root.Position - n.Position).Magnitude / (tweeninfo.MaxSpeed * (tweenSpeed/10)), Enum.EasingStyle.Linear), {CFrame = tweeninfo.CFrame * CFrame.new(0, Root.Size.Y, 0)})
+                    tween:Play()
                     repeat
-                        S.tween.Completed:Wait()
-                    until not S.chest or S.tween.PlaybackState == Enum.PlaybackState.Completed
+                        tween.Completed:Wait()
+                    until not chest or tween.PlaybackState == Enum.PlaybackState.Completed
                 end
                 Root.Anchored = true
             end      
@@ -948,7 +955,7 @@ local function CavenodeS.farm()
             if S.pressEnabled then
                 local deployable = GetDeployable("Coin Press", 25)
                 if deployable then
-                    for x, v in next, S.chest.Contents:GetChildren() do
+                    for x, v in next, chest.Contents:GetChildren() do
                         if v.Name == "Gold" then
                             Packets.Pickup.send(v:GetAttribute("EntityID"))
                             Packets.InteractStructure.send({entityID = deployable:GetAttribute("EntityID"), itemID = ItemIDS[v.Name]})
@@ -961,7 +968,7 @@ local function CavenodeS.farm()
     end
 end
 
-local function antS.farm()
+local function antfarm()
     while task.wait(1 / 3) do
         local entities = {}
         for _, v in next, Workspace:GetPartBoundsInRadius(Root.Position, 25) do
@@ -976,11 +983,11 @@ local function antS.farm()
             Packets.SwingTool.send(entities)
         end
 
-        if S.chest then
+        if chest then
 
             if S.pressEnabled then
-                if S.chest.Contents:FindFirstChild("Gold") then
-                    for _, v in next, S.chest.Contents:GetChildren() do
+                if chest.Contents:FindFirstChild("Gold") then
+                    for _, v in next, chest.Contents:GetChildren() do
                         if v.Name == "Gold" then
                             Packets.Pickup.send(v:GetAttribute("EntityID"))
                         end
@@ -1005,7 +1012,7 @@ local function antS.farm()
 end
 
 
-local function autoS.farmPumpkin()
+local function autofarmPumpkin()
     while task.wait() do
         if Root then
             local hugePumpkin = Workspace:FindFirstChild("Huge Pumpkin")
@@ -1030,16 +1037,16 @@ local function autoS.farmPumpkin()
                     humanoidRootPart.Anchored = false
 
                     for _, waypoint in ipairs(path:GetWaypoints()) do
-                        local S.tweenInfo = S.tweenInfo.new(
-                            (humanoidRootPart.Position - waypoint.Position).Magnitude / humanoid.S.walkSpeed,
+                        local tweenInfo = tweenInfo.new(
+                            (humanoidRootPart.Position - waypoint.Position).Magnitude / Humanoid.WalkSpeed,
                             Enum.EasingStyle.Linear
                         )
                         local goal = {
                             CFrame = CFrame.new(waypoint.Position)
                         }
-                        local S.tween = TweenService:Create(humanoidRootPart, S.tweenInfo, goal)
-                        S.tween:Play()
-                        S.tween.Completed:Wait()
+                        local tween = TweenService:Create(humanoidRootPart, tweenInfo, goal)
+                        tween:Play()
+                        tween.Completed:Wait()
                     end
 
                     humanoidRootPart.Anchored = true
@@ -1065,8 +1072,8 @@ local function autoS.farmPumpkin()
 
                 for x, v in next, deployable do
                     if not v.deployable:FindFirstChild("Seed") then
-                        S.tween2 = TweenService:Create(Root, S.tweenInfo.new(v.range / 20, Enum.EasingStyle.Linear, Enum.EasingDirection.InOut), {CFrame = v.deployable:GetPivot() * CFrame.new(0, 5, 0)})
-                        S.tween2:Play()
+                        tween2 = TweenService:Create(Root, tweeninfo.new(v.range / 20, Enum.EasingStyle.Linear, Enum.EasingDirection.InOut), {CFrame = v.deployable:GetPivot() * CFrame.new(0, 5, 0)})
+                        tween2:Play()
                         break
                     end
                 end
@@ -1094,7 +1101,7 @@ local function autoS.farmPumpkin()
     end
 end
 
-local function crewS.farm()
+local function crewfarm()
     local lastPosition = nil
     local stuckCounter = 0
     local stuckThreshold = 5
@@ -1108,11 +1115,11 @@ local function crewS.farm()
                 local success = true
                 for _, waypoint in pairs(Path:GetWaypoints()) do
                     if not success then break end
-                    S.tweenInfo = {MaxSpeed = Humanoid.S.walkSpeed, CFrame = CFrame.new(waypoint.Position)}
-                    S.tween = TweenService:Create(Root, S.tweenInfo.new((Root.Position - waypoint.Position).Magnitude / (S.tweenInfo.MaxSpeed * (S.tweenSpeed/10)), Enum.EasingStyle.Linear), {CFrame = S.tweenInfo.CFrame * CFrame.new(0, Root.Size.Y, 0)})
-                    S.tween:Play()
+                    tweeninfo = {MaxSpeed = Humanoid.WalkSpeed, CFrame = CFrame.new(waypoint.Position)}
+                    tween = TweenService:Create(Root, tweeninfo.new((Root.Position - waypoint.Position).Magnitude / (tweeninfo.MaxSpeed * (tweenSpeed/10)), Enum.EasingStyle.Linear), {CFrame = tweeninfo.CFrame * CFrame.new(0, Root.Size.Y, 0)})
+                    tween:Play()
                     local connection
-                    connection = S.tween.Completed:Connect(function()
+                    connection = tween.Completed:Connect(function()
                         if (Root.Position - waypoint.Position).Magnitude > 5 then
                             success = false
                             connection:Disconnect()
@@ -1120,7 +1127,7 @@ local function crewS.farm()
                     end)
                     repeat
                         task.wait()
-                    until not crewmate or not crewmate.Parent or S.tween.PlaybackState == Enum.PlaybackState.Completed
+                    until not crewmate or not crewmate.Parent or tween.PlaybackState == Enum.PlaybackState.Completed
                 end
 
                 if success and crewmate then
@@ -1171,7 +1178,7 @@ local function fruitJump(on)
     end
 end
 
-local function fruitS.farm()
+local function fruitFarm()
     while task.wait() do
         if not Root then
             S.fruitRun = false
@@ -1182,15 +1189,15 @@ local function fruitS.farm()
         local deployable = GetDeployable("Plant Box", 100, true) or {}
         table.sort(deployable, function(a, b) return a.range < b.range end)
 
-        if S.tweenEnabled then
+        if tweenEnabled then
             for _, v in ipairs(deployable) do
                 if v.deployable and not v.deployable:FindFirstChild("Seed") then
-                    S.tween2 = TweenService:Create(
+                    tween2 = TweenService:Create(
                         Root,
-                        S.tweenInfo.new(v.range / 20, Enum.EasingStyle.Linear, Enum.EasingDirection.InOut),
+                        tweeninfo.new(v.range / 20, Enum.EasingStyle.Linear, Enum.EasingDirection.InOut),
                         { CFrame = v.deployable:GetPivot() * CFrame.new(0, 5, 0) }
                     )
-                    S.tween2:Play()
+                    tween2:Play()
                     break
                 end
             end
@@ -1224,7 +1231,7 @@ function getFruitAmounts()
     return amounts
 end
 
-function sendFruitAmount(S.startAmounts, S.endAmounts, duration)
+function sendFruitAmount(startAmounts, endAmounts, duration)
     pcall(function()
         local description = "Fruits tracked in " .. duration .. ":\n"
         for fruitName, startAmount in pairs(S.startAmounts) do
@@ -1418,11 +1425,11 @@ local function startTweening()
         local MAX_TRAVEL_SECS = math.max(15, dist / (speed * 0.6))
         local duration = math.max(0.02, dist / speed)
 
-        if S.tweenConn then S.tweenConn:Disconnect(); S.tweenConn = nil end
-        if S.tween then S.tween:Cancel(); S.tween = nil end
+        if tweenConn then tweenConn:Disconnect(); tweenConn = nil end
+        if tween then tween:Cancel(); tween = nil end
 
-        local ti = S.tweenInfo.new(duration, Enum.EasingStyle.Linear)
-        S.tween = TweenService:Create(Root, ti, { CFrame = CFrame.new(targetPos) })
+        local ti = tweeninfo.new(duration, Enum.EasingStyle.Linear)
+        tween = TweenService:Create(Root, ti, { CFrame = CFrame.new(targetPos) })
 
         local completed, restartToNext, rubberbanded = false, false, false
         local jumpOuter = false
@@ -1432,12 +1439,12 @@ local function startTweening()
         local lastPos  = startPos
         local lastDist = (lastPos - targetPos).Magnitude
 
-        S.tweenConn = S.tween.Completed:Connect(function()
+        tweenConn = tween.Completed:Connect(function()
             completed = true
-            if S.tweenConn then S.tweenConn:Disconnect(); S.tweenConn = nil end
+            if tweenConn then tweenConn:Disconnect(); tweenConn = nil end
         end)
 
-        S.tween:Play()
+        tween:Play()
 
         while S.walkingEnabled and not completed do
             task.wait(JUMP_SAMPLE_SECS)
@@ -1477,8 +1484,8 @@ local function startTweening()
             end
 
             if rubberbanded then
-                if S.tweenConn then S.tweenConn:Disconnect(); S.tweenConn = nil end
-                if S.tween then S.tween:Cancel(); S.tween = nil end
+                if tweenConn then tweenConn:Disconnect(); tweenConn = nil end
+                if tween then tween:Cancel(); tween = nil end
 
                 task.wait(SETTLE_SECS)
                 local serverPos = Root.Position
@@ -1504,8 +1511,8 @@ local function startTweening()
             lastPos = curPos
         end
 
-        if S.tweenConn then S.tweenConn:Disconnect(); S.tweenConn = nil end
-        if S.tween then S.tween:Cancel(); S.tween = nil end
+        if tweenConn then tweenConn:Disconnect(); tweenConn = nil end
+        if tween then tween:Cancel(); tween = nil end
 
         if jumpOuter then
             continue
@@ -1529,8 +1536,8 @@ local function startTweening()
         task.wait(0.1)
     end
 
-    if S.tweenConn then S.tweenConn:Disconnect(); S.tweenConn = nil end
-    if S.tween then S.tween:Cancel(); S.tween = nil end
+    if tweenConn then tweenConn:Disconnect(); tweenConn = nil end
+    if tween then tween:Cancel(); tween = nil end
 end
 
 local function autoJump()
@@ -1704,7 +1711,7 @@ local function startAutoFishing()
     end)
 end
 
-local function autoS.farmGoldPot()
+local function autoFarmGoldPot()
     while task.wait() do
         if Root then
             local goldPot = GetDeployable("Gold Pot", math.huge, false)
@@ -1741,14 +1748,14 @@ local function autoS.farmGoldPot()
                         humanoidRootPart.Anchored = false
                         
                         for _, waypoint in ipairs(path:GetWaypoints()) do
-                            local S.tweenInfo = S.tweenInfo.new(
-                                (humanoidRootPart.Position - waypoint.Position).Magnitude / humanoid.S.walkSpeed,
+                            local tweenInfo = tweenInfo.new(
+                                (humanoidRootPart.Position - waypoint.Position).Magnitude / Humanoid.WalkSpeed,
                                 Enum.EasingStyle.Linear
                             )
                             local goal = { CFrame = CFrame.new(waypoint.Position) }
-                            local S.tween = TweenService:Create(humanoidRootPart, S.tweenInfo, goal)
-                            S.tween:Play()
-                            S.tween.Completed:Wait()
+                            local tween = TweenService:Create(humanoidRootPart, tweenInfo, goal)
+                            tween:Play()
+                            tween.Completed:Wait()
                         end
                         
                         humanoidRootPart.Anchored = true
@@ -2216,8 +2223,8 @@ local Window = Fluent:CreateWindow({
 })
 
 local Tabs = {
-    Main = Window:AddTab({ Title = "S.fruit S.farm", Icon = "" }),
-    GoldEXP = Window:AddTab({ Title = "Gold/EXP S.farm", Icon = "" }),
+    Main = Window:AddTab({ Title = "Fruit Ffarm", Icon = "" }),
+    GoldEXP = Window:AddTab({ Title = "Gold/EXP Ffarm", Icon = "" }),
     PositionsTab = Window:AddTab({ Title = "Set Positions" }),
     Extra = Window:AddTab({ Title = "Extra", Icon = "" }),
     Settings = Window:AddTab({ Title = "Settings", Icon = "settings" })
@@ -2232,10 +2239,10 @@ if (require == nil or hookmetamethod == nil or request == nil or Packets == nil 
     return
 end
 
-Tabs.Main:AddSection("S.fruit S.farm")
+Tabs.Main:AddSection("Fruit Farm")
 
-Tabs.Main:AddDropdown("S.fruit", {
-    Title = "S.fruit",
+Tabs.Main:AddDropdown("Fruit", {
+    Title = "Fruit",
     Values = S.fruitOptions,
     Default = S.fruit,
     Callback = function(value)
@@ -2261,26 +2268,26 @@ Tabs.Main:AddToggle("AutoHarvest", {
     end
 })
 
-Tabs.Main:AddToggle("S.tween", {
-    Title = "S.tween",
+Tabs.Main:AddToggle("tween", {
+    Title = "tween",
     Default = false,
     Callback = function(value)
-        S.tweenEnabled = value
+        tweenEnabled = value
         if value and S.farm.node then
-            S.tweenEnabled = false
-            Notify("S.fruit S.farm", "S.tween already enabled on a different S.farm")
-        elseif S.tween2 then
-            S.tween2:Cancel()
-            S.tween2 = nil
+            tweenEnabled = false
+            Notify("S.fruit S.farm", "tween already enabled on a different S.farm")
+        elseif tween2 then
+            tween2:Cancel()
+            tween2 = nil
         end
     end
 })
 
-Tabs.Main:AddToggle("S.S.autoEat", {
+Tabs.Main:AddToggle("S.autoEat", {
     Title = "Auto Eat",
     Default = false,
     Callback = function(value)
-        S.S.autoEat = value
+        S.autoEat = value
         if value then
             autoEatSelectedFruit()
         end
@@ -2309,23 +2316,23 @@ Tabs.Main:AddToggle("Run", {
     Callback = function(value)
         S.fruitRun = value
         if value then
-            if not S.tweenEnabled or not S.farm.node then
-                S.farm.S.fruit = task.spawn(fruitS.farm)
+            if not tweenEnabled or not S.farm.node then
+                S.farm.S.fruit = task.spawn(fruitFarm)
             else
                 S.fruitRun = false
-                Notify("S.fruit S.farm", "S.tween already enabled on a different S.farm")
+                Notify("S.fruit S.farm", "tween already enabled on a different S.farm")
             end
         elseif S.farm.S.fruit and pcall(task.cancel, S.farm.S.fruit) then
             S.farm.S.fruit = nil
-            if S.tween2 then
-                S.tween2:Cancel()
-                S.tween2 = nil
+            if tween2 then
+                tween2:Cancel()
+                tween2 = nil
             end
         end
     end
 })
 
-Tabs.Main:AddSection("S.fruit Tracker")
+Tabs.Main:AddSection("Fruit Tracker")
 
 Tabs.Main:AddButton({
     Title = "Start Tracking",
@@ -2366,13 +2373,17 @@ Tabs.GoldEXP:AddSlider("Speed", {
     Title = "Speed",
     Min = 1,
     Max = 10,
-    Default = S.tweenSpeed,
+    Default = tweenSpeed,
     Rounding = 1,
     Callback = function(value)
-        S.tweenSpeed = value
-        if S.tween and S.tween.PlaybackState == Enum.PlaybackState.Playing then
-            S.tween = TweenService:Create(Root, S.tweenInfo.new((Root.Position - S.tweenInfo.CFrame.Position).Magnitude / (S.tweenInfo.MaxSpeed * value), Enum.EasingStyle.Linear), {CFrame = S.tweenInfo.CFrame})
-            S.tween:Play()
+        tweenSpeed = value
+        if tween and tween.PlaybackState == Enum.PlaybackState.Playing then
+            local targetCF = tween and tween.Instance and tween.Instance.CFrame or Root.CFrame
+            local dist = (Root.Position - targetCF.Position).Magnitude
+            local ti = TweenInfo.new(dist / (Humanoid.WalkSpeed * value), Enum.EasingStyle.Linear)
+            tween:Cancel()
+            tween = TweenService:Create(Root, ti, { CFrame = targetCF })
+            tween:Play()
         end
     end
 })
@@ -2402,7 +2413,7 @@ Tabs.GoldEXP:AddToggle("PickupCoins", {
 })
 
 Tabs.GoldEXP:AddToggle("PickupGoldFromChest", {
-    Title = "Pickup Gold from S.chest",
+    Title = "Pickup Gold from chest",
     Default = false,
     Callback = function(value)
         S.pickUpGoldEnabled = value
@@ -2439,15 +2450,15 @@ Tabs.GoldEXP:AddToggle("IceNodeS.farm", {
     Callback = function(value)
         S.icenodeRun = value
         if value then
-            if not S.farm.S.fruit or not S.tweenEnabled then
+            if not S.farm.S.fruit or not tweenEnabled then
                 local chunks = GetIceChunks()
                 if #chunks ~= 0 then
-                    S.chest = GetDeployable("S.chest", 100)
-                    if S.chest then
+                    chest = GetDeployable("chest", 100)
+                    if chest then
                         S.farm.node = task.spawn(IcenodeS.farm)
                     else
                         S.icenodeRun = false
-                        Notify("Gold S.farm", "Couldn't find your S.chest")
+                        Notify("Gold S.farm", "Couldn't find your chest")
                     end
                 else
                     S.icenodeRun = false
@@ -2455,51 +2466,51 @@ Tabs.GoldEXP:AddToggle("IceNodeS.farm", {
                 end
             else
                 S.icenodeRun = false
-                Notify("Gold S.farm", "S.tween already enabled on a different S.farm")
+                Notify("Gold S.farm", "tween already enabled on a different S.farm")
             end
         elseif S.farm.node and pcall(task.cancel, S.farm.node) then
             S.farm.node = nil
-            if S.tween then
-                S.tween:Cancel()
-                S.tween = nil
+            if tween then
+                tween:Cancel()
+                tween = nil
             end
-            S.chest = nil
+            chest = nil
             Root.Anchored = false
         end
     end
 })
 
 Tabs.GoldEXP:AddToggle("CaveNodeS.farm", {
-    Title = "Cave Node S.farm",
+    Title = "Cave Node Farm",
     Default = false,
     Callback = function(value)
         S.cavenodeRun = value
         if value then
-            if not S.farm.S.fruit or not S.tweenEnabled then
+            if not S.farm.S.fruit or not tweenEnabled then
                 local chunks = GetCaveChunks()
                 if #chunks ~= 0 then
-                    S.chest = GetDeployable("S.chest", 100)
-                    if S.chest then
+                    chest = GetDeployable("chest", 100)
+                    if chest then
                         S.farm.node = task.spawn(CavenodeS.farm)
                     else
                         S.cavenodeRun = false
-                        Notify("Gold S.farm", "Couldn't find your S.chest")
+                        Notify("Gold Farm", "Couldn't find your chest")
                     end
                 else
                     S.cavenodeRun = false
-                    Notify("Gold S.farm", "You're far away from the S.farm area")
+                    Notify("Gold Farm", "You're far away from the S.farm area")
                 end
             else
                 S.cavenodeRun = false
-                Notify("Gold S.farm", "S.tween already enabled on a different S.farm")
+                Notify("Gold Farm", "tween already enabled on a different S.farm")
             end
         elseif S.farm.node and pcall(task.cancel, S.farm.node) then
             S.farm.node = nil
-            if S.tween then
-                S.tween:Cancel()
-                S.tween = nil
+            if tween then
+                tween:Cancel()
+                tween = nil
             end
-            S.chest = nil
+            chest = nil
             Root.Anchored = false
         end
     end
@@ -2518,21 +2529,21 @@ Tabs.GoldEXP:AddToggle("CaveNodeS.farm", {
 -- })
 
 Tabs.GoldEXP:AddToggle("AntS.farm", {
-    Title = "Ant S.farm",
+    Title = "Ant Farm",
     Default = false,
     Callback = function(value)
         S.antRun = value
         if value then
-            S.chest = GetDeployable("S.chest", 100)
-            if S.chest then
+            chest = GetDeployable("chest", 100)
+            if chest then
                 S.farm.ant = task.spawn(antS.farm)
             else
                 S.antRun = false
-                Notify("Ant S.farm", "Couldn't find your S.chest")
+                Notify("Ant Farm", "Couldn't find your chest")
             end
         elseif pcall(task.cancel, S.farm.ant) then
             S.farm.ant = nil
-            S.chest = nil
+            chest = nil
         end
     end
 })
@@ -2574,17 +2585,17 @@ Tabs.GoldEXP:AddToggle("AntS.farm", {
 --     Callback = function(value)
 --         S.crewRun = value
 --         if value then
---             if not S.farm.crew or not S.tweenEnabled then
+--             if not S.farm.crew or not tweenEnabled then
 --                 S.farm.crew = task.spawn(crewS.farm)
 --             else
 --                 S.crewRun = false
---                 Notify("Crewmate S.farm", "S.tween already enabled on a different S.farm")
+--                 Notify("Crewmate S.farm", "tween already enabled on a different S.farm")
 --             end
 --         elseif S.farm.crew and pcall(task.cancel, S.farm.crew) then
 --             S.farm.crew = nil
---             if S.tween then
---                 S.tween:Cancel()
---                 S.tween = nil
+--             if tween then
+--                 tween:Cancel()
+--                 tween = nil
 --             end
 --             Root.Anchored = false
 --         end
@@ -2715,7 +2726,7 @@ Tabs.PositionsTab:AddButton({
 })
 
 Tabs.PositionsTab:AddToggle("StartTweenToggle", {
-    Title = "Start S.tween",
+    Title = "Start tween",
     Default = false,
     Callback = function(value)
         S.walkingEnabled = value
@@ -2730,8 +2741,8 @@ Tabs.PositionsTab:AddToggle("StartTweenToggle", {
                 Notify("Tweening stopped.")
             end
             S.walkingEnabled = false
-            if S.tweenConn then S.tweenConn:Disconnect(); S.tweenConn = nil end
-            if S.tween then S.tween:Cancel(); S.tween = nil end
+            if tweenConn then tweenConn:Disconnect(); tweenConn = nil end
+            if tween then tween:Cancel(); tween = nil end
         end
     end
 })
@@ -3089,7 +3100,7 @@ Tabs.Extra:AddToggle("AutoDropSelected", {
 })
 
 Tabs.Extra:AddToggle("TPDropToChestToggle", {
-    Title = "TP Dropped Item to S.chest",
+    Title = "TP Dropped Item to chest",
     Default = false,
     Callback = function(v)
         S.TPDropToChest = v
@@ -3105,13 +3116,13 @@ Tabs.Extra:AddToggle("TPDropToChestToggle", {
             return
         end
 
-        S.chest = S.chest or GetDeployable("S.chest", 100, false)
-        if not S.chest then
+        chest = chest or GetDeployable("chest", 100, false)
+        if not chest then
             S.TPDropToChest = false
             if Notify then
-                Notify("Dropper", "No S.chest found within 100 studs.")
+                Notify("Dropper", "No chest found within 100 studs.")
             else
-                warn("[S.TPDropToChest] No S.chest found within 100 studs.")
+                warn("[S.TPDropToChest] No chest found within 100 studs.")
             end
             return
         end
@@ -3207,13 +3218,13 @@ SaveManager:LoadAutoloadConfig()
 
 if Conns.itemsChildAdded then Conns.itemsChildAdded:Disconnect() end
 Conns.itemsChildAdded = Workspace.Items.ChildAdded:Connect(function(item)
-    if (S.icenodeRun or S.cavenodeRun or S.antRun or S.crewRun) and item.Name == "Raw Gold" and S.chest then
+    if (S.icenodeRun or S.cavenodeRun or S.antRun or S.crewRun) and item.Name == "Raw Gold" and chest then
         task.spawn(function()
             while item and item.Parent == workspace.Items do
                 local id = item:GetAttribute("EntityID")
                 if id then
                     Packets.ForceInteract.send(id)
-                    pcall(function() item:PivotTo(S.chest:GetPivot()) end)
+                    pcall(function() item:PivotTo(chest:GetPivot()) end)
                     Packets.ForceInteract.send()
                 end
                 task.wait()
@@ -3221,7 +3232,7 @@ Conns.itemsChildAdded = Workspace.Items.ChildAdded:Connect(function(item)
         end)
         return
     end
-    if S.TPDropToChest and S.autoDropEnabled and S.chest and S.selectedDropItem and item.Name == S.selectedDropItem then
+    if S.TPDropToChest and S.autoDropEnabled and chest and S.selectedDropItem and item.Name == S.selectedDropItem then
         task.spawn(function()
             local t0 = os.clock()
             local id = item:GetAttribute("EntityID")
@@ -3231,9 +3242,9 @@ Conns.itemsChildAdded = Workspace.Items.ChildAdded:Connect(function(item)
             end
             if not id then return end
 
-            while S.TPDropToChest and S.autoDropEnabled and S.chest and item and item.Parent == workspace.Items do
+            while S.TPDropToChest and S.autoDropEnabled and chest and item and item.Parent == workspace.Items do
                 Packets.ForceInteract.send(id)
-                pcall(function() item:PivotTo(S.chest:GetPivot()) end)
+                pcall(function() item:PivotTo(chest:GetPivot()) end)
                 Packets.ForceInteract.send()
                 task.wait()
             end
@@ -3388,7 +3399,7 @@ Workspace.ChildAdded:Connect(function(child)
 end)
 
 Workspace.Deployables.ChildRemoved:Connect(function(deployable)
-    if deployable == S.chest then
+    if deployable == chest then
         S.icenodeRun = false
         S.cavenodeRun = false
     end
