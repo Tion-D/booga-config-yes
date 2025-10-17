@@ -2107,26 +2107,28 @@ local function inventoryHasChosen()
     return false
 end
 
-local function qty(name)
-    local q = tonumber(select(1, GetQuantity(name)) or 0) or 0
-    return q
-end
-
 local function ensureMaterials()
-    local g = qty("Gold")
-    local c = qty("Crystal Chunk")
-    for i = 1, math.max(0, CFG.NEED_GOLD - g) do
-        Packets.PurchaseFromShop.send(CFG.GOLD_ID); task.wait()
+    local g = tonumber(select(1, GetQuantity("Gold"))) or 0
+    local c = tonumber(select(1, GetQuantity("Crystal Chunk"))) or 0
+
+    local needGold = math.max(0, 12 - g)
+    local needCrystal = math.max(0, 3 - c)
+
+    for i = 1, needGold do
+        Packets.PurchaseFromShop.send(CFG.GOLD_ID)
+        task.wait()
     end
-    for i = 1, math.max(0, CFG.NEED_CRYSTAL - c) do
-        Packets.PurchaseFromShop.send(CFG.CRYSTAL_ID); task.wait()
+
+    for i = 1, needCrystal do
+        Packets.PurchaseFromShop.send(CFG.GOLD_ID)
+        task.wait()
     end
 end
 
 local function craftAndEquipFromHotbar()
     ensureMaterials()
 
-    if qty("Gold") < CFG.NEED_GOLD or qty("Crystal Chunk") < CFG.NEED_CRYSTAL then
+    if GetQuantity("Gold") < CFG.NEED_GOLD or GetQuantity("Crystal Chunk") < CFG.NEED_CRYSTAL then
         Notify("Auto Retool", "Missing mats (need 12 Gold + 3 Crystal).")
         return false
     end
@@ -2626,7 +2628,7 @@ Tabs.GoldEXP:AddToggle("IceNodeFarm", {
             if not S.farm.fruit or not tweenEnabled then
                 local chunks = GetIceChunks()
                 if #chunks ~= 0 then
-                    chest = GetDeployable("chest", 100)
+                    chest = GetDeployable("Chest", 100)
                     if chest then
                         S.farm.node = task.spawn(IcenodeS.farm)
                     else
@@ -2662,7 +2664,7 @@ Tabs.GoldEXP:AddToggle("CaveNodeFarm", {
             if not S.farm.fruit or not tweenEnabled then
                 local chunks = GetCaveChunks()
                 if #chunks ~= 0 then
-                    chest = GetDeployable("chest", 100)
+                    chest = GetDeployable("Chest", 100)
                     if chest then
                         S.farm.node = task.spawn(CavenodeS.farm)
                     else
@@ -2707,7 +2709,7 @@ Tabs.GoldEXP:AddToggle("Ant.farm", {
     Callback = function(value)
         S.antRun = value
         if value then
-            chest = GetDeployable("chest", 100)
+            chest = GetDeployable("Chest", 100)
             if chest then
                 S.farm.ant = task.spawn(antfarm)
             else
@@ -3115,7 +3117,7 @@ Tabs.Extra:AddToggle("TPAllToChest", {
         S.tpAllToChest = v
 
         if v then
-            chest = GetDeployable("chest", 100, false)
+            chest = GetDeployable("Chest", 100, false)
             if not chest then
                 S.tpAllToChest = false
                 Notify("Looting", "No chest found within 100 studs.")
@@ -3194,7 +3196,7 @@ Tabs.Extra:AddToggle("SlopeToggle", {
 })
 
 Tabs.Extra:AddToggle("S.noclip", {
-    Title = "S.noclip Doors and old Board",
+    Title = "Noclip Doors and old Board",
     Default = false,
     Callback = function(value)
         noclipDoors(value)
@@ -3309,7 +3311,7 @@ Tabs.Extra:AddToggle("TPDropToChestToggle", {
             return
         end
 
-        chest = GetDeployable("chest", 100, false)
+        chest = GetDeployable("Chest", 100, false)
         if not chest then
             S.TPDropToChest = false
             Notify("Dropper", "No chest found within 100 studs.")
