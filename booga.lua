@@ -37,7 +37,8 @@ Players.LocalPlayer.CharacterAdded:Connect(function(char)
     Character = char
     Humanoid = char:WaitForChild("Humanoid")
     Root = char:WaitForChild("HumanoidRootPart")
-end)local S = {
+end)
+local S = {
   farm = {},
   positionList = {},
   interactingWithResources = false,
@@ -179,6 +180,7 @@ local tweenInfo = nil
 local chest = nil
 local tweenConn = nil
 local tweenSpeed = 1
+local tweeningEnabled = false
 
 tweenSpeed = tonumber(tweenSpeed) or 1
 S.walkSpeed = tonumber(S.walkSpeed) or 16
@@ -1414,7 +1416,7 @@ local function startTweening()
     local fails = table.create(#S.positionList, 0)
     local rbCount = table.create(#S.positionList, 0)
 
-    while S.walkingEnabled do
+    while tweeningEnabled do
         if curIndex < 1 or curIndex > #S.positionList then
             curIndex = 1
         end
@@ -1455,7 +1457,7 @@ local function startTweening()
 
         tween:Play()
 
-        while S.walkingEnabled and not completed do
+        while tweeningEnabled and not completed do
             task.wait(JUMP_SAMPLE_SECS)
 
             local now = tick()
@@ -2902,18 +2904,18 @@ Tabs.PositionsTab:AddToggle("StartTweenToggle", {
     Title = "Start tween",
     Default = false,
     Callback = function(value)
-        S.walkingEnabled = value
+        tweeningEnabled = value
         if S.autoJumpEnabled or S.walkingEnabled then
-            S.walkingEnabled = false
+            tweeningEnabled = false
             Notify("Auto Jump or Auto Walk enabled, turn them off to start tweening.")
         elseif value then
-            S.walkingEnabled = true
+            tweeningEnabled = true
             task.spawn(startTweening)
         else
-            if S.walkingEnabled then
+            if tweeningEnabled then
                 Notify("Tweening stopped.")
             end
-            S.walkingEnabled = false
+            tweeningEnabled = false
             if tweenConn then tweenConn:Disconnect(); tweenConn = nil end
             if tween then tween:Cancel(); tween = nil end
         end
@@ -2925,7 +2927,7 @@ Tabs.PositionsTab:AddToggle("StartWalkingToggle", {
     Default = false,
     Callback = function(value)
         S.walkingEnabled = value
-        if S.walkingEnabled then
+        if tweeningEnabled then
             S.walkingEnabled = false
             Notify("Tweening is enabled, disable it to use Start Walk.")
         elseif value then
@@ -2944,7 +2946,7 @@ Tabs.PositionsTab:AddToggle("AutoJumpToggle", {
     Default = false,
     Callback = function(value)
         S.autoJumpEnabled = value
-        if S.walkingEnabled then
+        if StweeningEnabled then
             S.autoJumpEnabled = false
             Notify("Tweening is enabled, disable it to use Auto Jump.")
         elseif value then
