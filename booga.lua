@@ -3120,34 +3120,36 @@ Tabs.Extra:AddToggle("TPAllToChest", {
         S.tpAllToChest = v
 
         if v then
-            chest = GetDeployable("Chest", 100, false)
+            local chest = GetDeployable("Chest", 1000, false)
             if not chest then
                 S.tpAllToChest = false
-                Notify("Looting", "No chest found within 100 studs.")
-            else
-                Notify("[TPAllToChest] No chest found within 100 studs.")
+                Notify("Looting", "No chest found within 1000 studs.")
                 return
+            else
+                Notify("Looting", "Teleporting all items to chest.")
             end
 
-            if Threads.tpAllTask then pcall(task.cancel, Threads.tpAllTask) end
+            if Threads.tpAllTask then
+                pcall(task.cancel, Threads.tpAllTask)
+            end
+
             Threads.tpAllTask = task.spawn(function()
-                while S.tpAllToChest and chest do
-                    local ItemsFolder = Workspace:FindFirstChild("Items")
+                while S.tpAllToChest and chest and chest.Parent do
+                    local ItemsFolder = workspace:FindFirstChild("Items")
                     if ItemsFolder then
                         for _, item in ipairs(ItemsFolder:GetChildren()) do
-                            if not S.tpAllToChest or not chest or not item or item.Parent ~= ItemsFolder then break end
                             local id = item:GetAttribute("EntityID")
                             if id then
-                                Packets.ForceInteract.send(id)
-                                pcall(function() item:PivotTo(chest:GetPivot()) end)
-                                Packets.ForceInteract.send()
-                                task.wait()
+                                pcall(function()
+                                    item:PivotTo(chest:GetPivot())
+                                end)
                             end
                         end
                     end
                     task.wait()
                 end
             end)
+
         else
             if Threads.tpAllTask then
                 pcall(task.cancel, Threads.tpAllTask)
@@ -3156,6 +3158,7 @@ Tabs.Extra:AddToggle("TPAllToChest", {
         end
     end
 })
+
 
 Tabs.Extra:AddToggle("AutoFish", {
     Title = "Auto Fish",
@@ -3314,7 +3317,7 @@ Tabs.Extra:AddToggle("TPDropToChestToggle", {
             return
         end
 
-        chest = GetDeployable("Chest", 100, false)
+        chest = GetDeployable("Chest", 1000, false)
         if not chest then
             S.TPDropToChest = false
             Notify("Dropper", "No chest found within 100 studs.")
