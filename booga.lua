@@ -170,9 +170,7 @@ local CFG = {
   GOLD_ID = 597,
   CRYSTAL_ID = 436,
   GOD_AXE_ID = 454,
-  GOD_PICK_ID = 132,
-  TOOL_NEED_GOLD = 12,
-  TOOL_NEED_CRYSTAL = 3
+  GOD_PICK_ID = 132
 }
 
 local tween = nil
@@ -2074,7 +2072,7 @@ local function idToName(id)
 end
 
 local function chosenName() return (retoolChoice == "God Axe") and "God Axe" or "God Pick" end
-local function chosenCraftID() return (retoolChoice == "God Axe") and GOD_AXE_ID or GOD_PICK__ID end
+local function chosenCraftID() return (retoolChoice == "God Axe") and CFG.GOD_AXE_ID or CFG.GOD_PICK_ID end
 
 local function getToolbar() return (GameUtil and GameUtil.Data and GameUtil.Data.toolbar) or {} end
 local function getEquipped() return GameUtil and GameUtil.Data and GameUtil.Data.equipped end
@@ -2117,18 +2115,18 @@ end
 local function ensureMaterials()
     local g = qty("Gold")
     local c = qty("Crystal Chunk")
-    for i = 1, math.max(0, NEED_GOLD - g) do
-        Packets.PurchaseFromShop.send(GOLD_ID); task.wait()
+    for i = 1, math.max(0, CFG.NEED_GOLD - g) do
+        Packets.PurchaseFromShop.send(CFG.GOLD_ID); task.wait()
     end
-    for i = 1, math.max(0, NEED_CRYSTAL - c) do
-        Packets.PurchaseFromShop.send(CRYSTAL_ID); task.wait()
+    for i = 1, math.max(0, CFG.NEED_CRYSTAL - c) do
+        Packets.PurchaseFromShop.send(CFG.CRYSTAL_ID); task.wait()
     end
 end
 
 local function craftAndEquipFromHotbar()
     ensureMaterials()
 
-    if qty("Gold") < NEED_GOLD or qty("Crystal Chunk") < NEED_CRYSTAL then
+    if qty("Gold") < CFG.NEED_GOLD or qty("Crystal Chunk") < CFG.NEED_CRYSTAL then
         Notify("Auto Retool", "Missing mats (need 12 Gold + 3 Crystal).")
         return false
     end
@@ -2711,7 +2709,7 @@ Tabs.GoldEXP:AddToggle("Ant.farm", {
         if value then
             chest = GetDeployable("chest", 100)
             if chest then
-                S.farm.ant = task.spawn(antS.farm)
+                S.farm.ant = task.spawn(antfarm)
             else
                 S.antRun = false
                 Notify("Ant Farm", "Couldn't find your chest")
@@ -3117,14 +3115,12 @@ Tabs.Extra:AddToggle("TPAllToChest", {
         S.tpAllToChest = v
 
         if v then
-            chest = chest or GetDeployable("chest", 100, false)
+            chest = GetDeployable("chest", 100, false)
             if not chest then
                 S.tpAllToChest = false
-                if Notify then
-                    Notify("Looting", "No chest found within 100 studs.")
-                else
-                    warn("[TPAllToChest] No chest found within 100 studs.")
-                end
+                Notify("Looting", "No chest found within 100 studs.")
+            else
+                Notify("[TPAllToChest] No chest found within 100 studs.")
                 return
             end
 
@@ -3144,7 +3140,7 @@ Tabs.Extra:AddToggle("TPAllToChest", {
                             end
                         end
                     end
-                    task.wait(0.25)
+                    task.wait()
                 end
             end)
         else
@@ -3313,21 +3309,10 @@ Tabs.Extra:AddToggle("TPDropToChestToggle", {
             return
         end
 
-        if type(GetDeployable) ~= "function" then
-            S.TPDropToChest = false
-            warn("[S.TPDropToChest] GetDeployable is not available yet.")
-            if Notify then Notify("Dropper", "GetDeployable isn't ready yet.") end
-            return
-        end
-
-        chest = chest or GetDeployable("chest", 100, false)
+        chest = GetDeployable("chest", 100, false)
         if not chest then
             S.TPDropToChest = false
-            if Notify then
-                Notify("Dropper", "No chest found within 100 studs.")
-            else
-                warn("[TPDropToChest] No chest found within 100 studs.")
-            end
+            Notify("Dropper", "No chest found within 100 studs.")
             return
         end
     end
