@@ -113,6 +113,8 @@ local S = {
   pickupRawGold = false,
   pickupAllItemsTask = false,
   pickupAllItems = false,
+  tpAllTask = false,
+  tpAllToChest = false,
 
   replacePotEnabled = false,
   trackingActive = false,
@@ -2165,6 +2167,217 @@ local function autoRetoolLoop()
     end
 end
 
+S._perf = S._perf or { parts = {}, fx = {}, conns = {}, coverGui = nil }
+
+local function _perfMakeCover()
+    local pg = Players.LocalPlayer:FindFirstChild("PlayerGui")
+    if not pg then return end
+    local gui = Instance.new("ScreenGui")
+    gui.Name = "UltraPerfCover"
+    gui.ResetOnSpawn = false
+    gui.IgnoreGuiInset = true
+    gui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+    gui.Parent = pg
+
+    local frame = Instance.new("Frame")
+    frame.Size = UDim2.fromScale(1, 1)
+    frame.BorderSizePixel = 0
+    frame.BackgroundColor3 = Color3.fromRGB(10,10,10)
+    frame.BackgroundTransparency = 0
+    frame.Parent = gui
+
+    S._perf.coverGui = gui
+end
+
+local function _perfDestroyCover()
+    if S._perf.coverGui then
+        pcall(function() S._perf.coverGui:Destroy() end)
+        S._perf.coverGui = nil
+    end
+end
+
+local function _perfIsMyChar(inst)
+    local c = Players.LocalPlayer.Character
+    return c and (inst:IsDescendantOf(c))
+end
+
+local function _perfCullInstance(obj)
+    if not obj or not obj.Parent then return end
+    if _perfIsMyChar(obj) then return end
+
+    if obj:IsA("BasePart") then
+        if obj.LocalTransparencyModifier ~= 1 then
+            S._perf.parts[obj] = true
+            obj.LocalTransparencyModifier = 1
+        end
+        obj.CastShadow = false
+        return
+    end
+
+    if obj:IsA("Decal") or obj:IsA("Texture") then
+        return
+    end
+
+    if obj:IsA("ParticleEmitter") or obj:IsA("Trail") or obj:IsA("Beam") then
+        if obj.Enabled ~= false then
+            S._perf.fx[obj] = true
+            obj.Enabled = false
+        end
+        return
+    end
+
+    if obj:IsA("PointLight") or obj:IsA("SpotLight") or obj:IsA("SurfaceLight") then
+        if obj.Enabled ~= false then
+            S._perf.fx[obj] = true
+            obj.Enabled = false
+        end
+        return
+    end
+end
+
+local function _perfCullTree(root)
+    if not root then return end
+    for _,d in ipairs(root:GetDescendants()) do
+        _perfCullInstance(d)
+    end
+end
+
+local function _perfLightTerrainLow()
+    S._perf._lighting = S._perf._lighting or {}
+    local Lighting = game:GetService("Lighting")
+    local Terrain  = workspace:FindFirstChildOfClass("Terrain")
+
+    if S._perf._lighting.saved ~= true then
+        S._perf._lighting.saved = true
+        S._perf._lighting.GlobalShadows = Lighting.GlobalShadows
+        S._perf._lighting.Brightness = Lighting.Brightness
+        S._perf._lighting.Ambient = Lighting.Ambient
+        S._perf._lighting.OutdoorAmbient = Lighting.OutdoorAmbient
+        if Terrain then
+            S._perf._lighting.WaterWaveSize = Terrain.WaterWaveSize
+            S._perf._lighting.WaterWaveSpeed = Terrain.WaterWaveSpeed
+            S._perf._lighting.WaterTransparency = Terrain.WaterTransparency
+            S._perf._lighting.WaterReflectance = Terrain.WaterReflectance
+        end
+        local Atmos = Lighting:FindFirstChildOfClass("Atmosphere")
+        if Atmos then
+            S._perf._lighting.Atmosphere = {
+                Ref = Atmos, Density = Atmos.Density, Haze = Atmos.Haze,
+                Glare = Atmos.Glare, Color = Atmos.Color, Decay = Atmos.Decay
+            }
+        end
+    end
+
+    Lighting.GlobalShadows = false
+    Lighting.Brightness = 1
+    Lighting.Ambient = Color3.new(0.5,0.5,0.5)
+    Lighting.OutdoorAmbient= Color3.new(0.5,0.5,0.5)
+
+    if Terrain then
+        Terrain.WaterWaveSize = 0
+        Terrain.WaterWaveSpeed = 0
+        Terrain.WaterTransparency = 1
+        Terrain.WaterReflectance = 0
+    end
+
+    local Atmos = Lighting:FindFirstChildOfClass("Atmosphere")
+    if Atmos then
+        Atmos.Density = 0
+        Atmos.Haze = 0
+        Atmos.Glare = 0
+        Atmos.Color = Color3.new(1,1,1)
+        Atmos.Decay = Color3.new(1,1,1)
+    end
+end
+
+local function _perfLightTerrainRestore()
+    local Lighting = game:GetService("Lighting")
+    local Terrain  = workspace:FindFirstChildOfClass("Terrain")
+
+    if S._perf._lighting and S._perf._lighting.saved then
+        Lighting.GlobalShadows = S._perf._lighting.GlobalShadows
+        Lighting.Brightness = S._perf._lighting.Brightness
+        Lighting.Ambient = S._perf._lighting.Ambient
+        Lighting.OutdoorAmbient = S._perf._lighting.OutdoorAmbient
+        if Terrain then
+            Terrain.WaterWaveSize = S._perf._lighting.WaterWaveSize
+            Terrain.WaterWaveSpeed = S._perf._lighting.WaterWaveSpeed
+            Terrain.WaterTransparency = S._perf._lighting.WaterTransparency
+            Terrain.WaterReflectance = S._perf._lighting.WaterReflectance
+        end
+        local a = S._perf._lighting.Atmosphere
+        if a and a.Ref then
+            a.Ref.Density = a.Density
+            a.Ref.Haze = a.Haze
+            a.Ref.Glare = a.Glare
+            a.Ref.Color = a.Color
+            a.Ref.Decay = a.Decay
+        end
+    end
+end
+
+local function _perfBindLiveCulling()
+    local wsConn = workspace.DescendantAdded:Connect(_perfCullInstance)
+    table.insert(S._perf.conns, wsConn)
+    local lightConn = game:GetService("Lighting").DescendantAdded:Connect(_perfCullInstance)
+    table.insert(S._perf.conns, lightConn)
+end
+
+local function _perfUnbind()
+    for _,c in ipairs(S._perf.conns) do pcall(function() c:Disconnect() end) end
+    S._perf.conns = {}
+end
+
+local function startUltraPerformance()
+    if S.ultraPerfEnabled then return end
+    S.ultraPerfEnabled = true
+
+    _perfMakeCover()
+    _perfLightTerrainLow()
+
+    _perfCullTree(workspace)
+    _perfCullTree(game:GetService("Lighting"))
+
+    _perfBindLiveCulling()
+
+    pcall(function()
+        if typeof(setfpscap) == "function" and (S.maxPerfFPS or 30) > 0 then
+            setfpscap(S.maxPerfFPS or 30)
+        end
+    end)
+
+    Notify("Ultra Performance", "Cover + visual culling enabled.")
+end
+
+local function stopUltraPerformance()
+    if not S.ultraPerfEnabled then return end
+    S.ultraPerfEnabled = false
+
+    _perfUnbind()
+    _perfDestroyCover()
+    _perfLightTerrainRestore()
+
+    for part in pairs(S._perf.parts) do
+        if part and part.Parent then
+            part.LocalTransparencyModifier = 0
+            part.CastShadow = true
+        end
+    end
+    S._perf.parts = {}
+
+    for inst in pairs(S._perf.fx) do
+        if inst and inst.Parent then
+            if inst:IsA("ParticleEmitter") or inst:IsA("Trail") or inst:IsA("Beam") or
+               inst:IsA("PointLight") or inst:IsA("SpotLight") or inst:IsA("SurfaceLight") then
+                inst.Enabled = true
+            end
+        end
+    end
+    S._perf.fx = {}
+
+    Notify("Ultra Performance", "Restored visuals.")
+end
+
 
 local Fluent = loadstring(game:HttpGet("https://github.com/dawid-scripts/Fluent/releases/latest/download/main.lua"))()
 local SaveManager = loadstring(game:HttpGet("https://raw.githubusercontent.com/dawid-scripts/Fluent/master/Addons/SaveManager.lua"))()
@@ -2820,7 +3033,6 @@ Tabs.Extra:AddButton({
 
 Tabs.Extra:AddSection("Automation")
 
-
 Tabs.Extra:AddToggle("AutoRebirth", {
     Title = "Auto Rebirth",
     Default = false,
@@ -2895,6 +3107,52 @@ Tabs.Extra:AddToggle("AutohittWithResources", {
     end
 })
 
+Tabs.Extra:AddToggle("TPAllToChest", {
+    Title = "Teleport everything to chest",
+    Default = false,
+    Callback = function(v)
+        S.tpAllToChest = v
+
+        if v then
+            chest = chest or GetDeployable("chest", 100, false)
+            if not chest then
+                S.tpAllToChest = false
+                if Notify then
+                    Notify("Looting", "No chest found within 100 studs.")
+                else
+                    warn("[TPAllToChest] No chest found within 100 studs.")
+                end
+                return
+            end
+
+            if Threads.tpAllTask then pcall(task.cancel, Threads.tpAllTask) end
+            Threads.tpAllTask = task.spawn(function()
+                while S.tpAllToChest and chest do
+                    local ItemsFolder = Workspace:FindFirstChild("Items")
+                    if ItemsFolder then
+                        for _, item in ipairs(ItemsFolder:GetChildren()) do
+                            if not S.tpAllToChest or not chest or not item or item.Parent ~= ItemsFolder then break end
+                            local id = item:GetAttribute("EntityID")
+                            if id then
+                                Packets.ForceInteract.send(id)
+                                pcall(function() item:PivotTo(chest:GetPivot()) end)
+                                Packets.ForceInteract.send()
+                                task.wait()
+                            end
+                        end
+                    end
+                    task.wait(0.25)
+                end
+            end)
+        else
+            if Threads.tpAllTask then
+                pcall(task.cancel, Threads.tpAllTask)
+                Threads.tpAllTask = nil
+            end
+        end
+    end
+})
+
 Tabs.Extra:AddToggle("AutoFish", {
     Title = "Auto Fish",
     Default = false,
@@ -2905,22 +3163,6 @@ Tabs.Extra:AddToggle("AutoFish", {
         else
             if S.rodBubbleConn then S.rodBubbleConn:Disconnect(); S.rodBubbleConn = nil end
             if S.autoFishLoop then pcall(task.cancel, S.autoFishLoop); S.autoFishLoop = nil end
-        end
-    end
-})
-
-
-Tabs.Extra:AddInput("SetMaxFPS", {
-    Title = "Set Max FPS",
-    Placeholder = "Enter FPS",
-    Default = "",
-    Numeric = false,
-    Callback = function(Text)
-        local fps = tonumber(Text)
-        if fps then
-            setfpscap(fps)
-        else
-            Notify("Invalid fps value")
         end
     end
 })
@@ -3081,7 +3323,7 @@ Tabs.Extra:AddToggle("TPDropToChestToggle", {
             if Notify then
                 Notify("Dropper", "No chest found within 100 studs.")
             else
-                warn("[S.TPDropToChest] No chest found within 100 studs.")
+                warn("[TPDropToChest] No chest found within 100 studs.")
             end
             return
         end
@@ -3115,7 +3357,36 @@ Tabs.Extra:AddToggle("AutoRetool", {
     end
 })
 
-Tabs.Extra:AddSection("Make S.farm (turn off cam lock, made by Zam)")
+Tabs.Extra:AddSection("Performance")
+
+Tabs.Extra:AddToggle("UltraPerf", {
+    Title = "Ultra Performance",
+    Default = false,
+    Callback = function(v)
+        if v then
+            startUltraPerformance()
+        else
+            stopUltraPerformance()
+        end
+    end
+})
+
+Tabs.Extra:AddInput("SetMaxFPS", {
+    Title = "Set Max FPS",
+    Placeholder = "Enter FPS",
+    Default = "",
+    Numeric = false,
+    Callback = function(Text)
+        local fps = tonumber(Text)
+        if fps then
+            setfpscap(fps)
+        else
+            Notify("Invalid fps value")
+        end
+    end
+})
+
+Tabs.Extra:AddSection("Make Farm (turn off cam lock, made by Zam)")
 
 Tabs.Extra:AddButton({
     Title = "Create 8x8 Plant Boxes",
@@ -3300,6 +3571,24 @@ Conns.itemsChildAdded = Workspace.Items.ChildAdded:Connect(function(item)
                     Packets.Pickup.send(id)
                     task.wait(0.12)
                 end
+            end
+        end)
+        return
+    end
+    if S.tpAllToChest and chest then
+        task.spawn(function()
+            local t0 = os.clock()
+            local id = item:GetAttribute("EntityID")
+            while item.Parent == workspace.Items and not id and (os.clock() - t0) < 3 do
+                task.wait()
+                id = item:GetAttribute("EntityID")
+            end
+            if not id then return end
+            while S.tpAllToChest and chest and item and item.Parent == workspace.Items do
+                Packets.ForceInteract.send(id)
+                pcall(function() item:PivotTo(chest:GetPivot()) end)
+                Packets.ForceInteract.send()
+                task.wait()
             end
         end)
         return
