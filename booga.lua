@@ -2108,8 +2108,8 @@ local function inventoryHasChosen()
 end
 
 local function ensureMaterials()
-    local g = tonumber(select(1, GetQuantity("Gold"))) or 0
-    local c = tonumber(select(1, GetQuantity("Crystal Chunk"))) or 0
+    local g = tonumber((GetQuantity("Gold"))) or 0
+    local c = tonumber((GetQuantity("Crystal Chunk"))) or 0
 
     local needGold = math.max(0, 12 - g)
     local needCrystal = math.max(0, 3 - c)
