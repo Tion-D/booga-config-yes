@@ -2317,13 +2317,13 @@ Tabs.Main:AddToggle("Run", {
         S.fruitRun = value
         if value then
             if not tweenEnabled or not S.farm.node then
-                S.farm.S.fruit = task.spawn(fruitFarm)
+                S.farm.fruit = task.spawn(fruitFarm)
             else
                 S.fruitRun = false
                 Notify("S.fruit S.farm", "tween already enabled on a different S.farm")
             end
-        elseif S.farm.S.fruit and pcall(task.cancel, S.farm.S.fruit) then
-            S.farm.S.fruit = nil
+        elseif S.farm.fruit and pcall(task.cancel, S.farm.fruit) then
+            S.farm.fruit = nil
             if tween2 then
                 tween2:Cancel()
                 tween2 = nil
@@ -2450,7 +2450,7 @@ Tabs.GoldEXP:AddToggle("IceNodeS.farm", {
     Callback = function(value)
         S.icenodeRun = value
         if value then
-            if not S.farm.S.fruit or not tweenEnabled then
+            if not S.farm.fruit or not tweenEnabled then
                 local chunks = GetIceChunks()
                 if #chunks ~= 0 then
                     chest = GetDeployable("chest", 100)
@@ -2486,7 +2486,7 @@ Tabs.GoldEXP:AddToggle("CaveNodeS.farm", {
     Callback = function(value)
         S.cavenodeRun = value
         if value then
-            if not S.farm.S.fruit or not tweenEnabled then
+            if not S.farm.fruit or not tweenEnabled then
                 local chunks = GetCaveChunks()
                 if #chunks ~= 0 then
                     chest = GetDeployable("chest", 100)
