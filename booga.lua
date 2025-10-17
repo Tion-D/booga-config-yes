@@ -752,17 +752,48 @@ local function pickupAllItem()
             end
         end
         task.wait()
+        local Deployables = workspace:FindFirstChild("Deployables")
+        if Deployables then
+            for _, chest in ipairs(Deployables:GetChildren()) do
+                local contents = chest:FindFirstChild("Contents")
+                if contents then
+                    for _, item in ipairs(contents:GetChildren()) do
+                        local id = item:GetAttribute("EntityID")
+                        if id then Packets.Pickup.send(id) end
+                        task.wait()
+                    end
+                end
+            end
+        end
+        task.wait()
     end
 end
 
 local function pickupGolds()
     while S.pickupGold do
-       local Items = Workspace:FindFirstChild("Items")
+        local Items = workspace:FindFirstChild("Items")
         if Items then
             for _, item in ipairs(Items:GetChildren()) do
                 if item.Name == "Gold" then
-                    Packets.Pickup.send(item:GetAttribute("EntityID"))
+                    local id = item:GetAttribute("EntityID")
+                    if id then Packets.Pickup.send(id) end
                     task.wait()
+                end
+            end
+        end
+
+        local Deployables = workspace:FindFirstChild("Deployables")
+        if Deployables then
+            for _, chest in ipairs(Deployables:GetChildren()) do
+                local contents = chest:FindFirstChild("Contents")
+                if contents then
+                    for _, item in ipairs(contents:GetChildren()) do
+                        if item.Name == "Gold" then
+                            local id = item:GetAttribute("EntityID")
+                            if id then Packets.Pickup.send(id) end
+                            task.wait()
+                        end
+                    end
                 end
             end
         end
@@ -3546,15 +3577,31 @@ Conns.itemsChildAdded = Workspace.Items.ChildAdded:Connect(function(item)
         task.spawn(function()
             local t0 = os.clock()
             local id = item:GetAttribute("EntityID")
-            while item.Parent == workspace.Items and not id and os.clock() - t0 < 3 do
+            while not id and os.clock() - t0 < 3 do
                 task.wait()
                 id = item:GetAttribute("EntityID")
             end
-            if id then
-                for i = 1, 8 do
-                    if not item or item.Parent ~= workspace.Items then break end
-                    Packets.Pickup.send(id)
-                    task.wait(0.12)
+            if not id then return end
+
+            for i = 1, 8 do
+                if not item or (item.Parent ~= workspace.Items and not item.Parent:FindFirstAncestorOfClass("Model")) then break end
+                Packets.Pickup.send(id)
+                task.wait(0.12)
+            end
+
+            local Deployables = workspace:FindFirstChild("Deployables")
+            if Deployables then
+                for _, chest in ipairs(Deployables:GetChildren()) do
+                    local contents = chest:FindFirstChild("Contents")
+                    if contents then
+                        for _, v in ipairs(contents:GetChildren()) do
+                            if v.Name == "Gold" then
+                                local vid = v:GetAttribute("EntityID")
+                                if vid then Packets.Pickup.send(vid) end
+                                task.wait(0.1)
+                            end
+                        end
+                    end
                 end
             end
         end)
