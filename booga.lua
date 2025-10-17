@@ -3120,10 +3120,10 @@ Tabs.Extra:AddToggle("TPAllToChest", {
         S.tpAllToChest = v
 
         if v then
-            local chest = GetDeployable("Chest", 1000, false)
+            local chest = GetDeployable("Chest", 150, false)
             if not chest then
                 S.tpAllToChest = false
-                Notify("Looting", "No chest found within 1000 studs.")
+                Notify("Looting", "No chest found within 150 studs.")
                 return
             else
                 Notify("Looting", "Teleporting all items to chest.")
@@ -3317,7 +3317,7 @@ Tabs.Extra:AddToggle("TPDropToChestToggle", {
             return
         end
 
-        chest = GetDeployable("Chest", 1000, false)
+        chest = GetDeployable("Chest", 150, false)
         if not chest then
             S.TPDropToChest = false
             Notify("Dropper", "No chest found within 100 studs.")
