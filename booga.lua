@@ -2052,161 +2052,119 @@ local function onCharacterAdded()
         autoSpawn()
     end
 end
-
 local function idToName(id)
     for name, data in pairs(ItemData) do
-        if (type(data) == "table" and (data.id == id or data.itemID == id)) or ItemIDS[name] == id then
-            return name
-        end
+        if type(data) == "table" and (data.id == id or data.itemID == id) then return name end
+    end
+    for name, _id in pairs(ItemIDS) do
+        if _id == id then return name end
     end
     return nil
 end
 
-local function nameToCraftID(name)
-    return (name == "God Axe") and CFG.GOD_AXE_ID or CFG.GOD_PICK_ID
-end
+local function chosenName() return (retoolChoice == "God Axe") and "God Axe" or "God Pick" end
+local function chosenCraftID() return (retoolChoice == "God Axe") and GOD_AXE_ID or GOD_PICK__ID end
 
-local function isChosenToolName(name)
-    return (name == "God Axe" and S.retoolChoice == "God Axe")
-        or (name == "God Pick" and S.retoolChoice == "God Pick")
-end
+local function getToolbar() return (GameUtil and GameUtil.Data and GameUtil.Data.toolbar) or {} end
+local function getEquipped() return GameUtil and GameUtil.Data and GameUtil.Data.equipped end
 
-local _hbConns = {}
-pcall(function()
-    _hbConns.insert = Packets.ToolInsert.listen(function(p)
-        S.Hotbar[p.index] = { itemID = p.itemID, qty = p.quantity or 0 }
-    end)
-    _hbConns.rem = Packets.ToolRemoved.listen(function(slot)
-        S.Hotbar[slot] = nil
-        if S.EquippedSlot == slot then S.EquippedSlot = nil end
-    end)
-    _hbConns.q = Packets.ToolQuantityChanged.listen(function(p)
-        if S.Hotbar[p.slot] then S.Hotbar[p.slot].qty = p.quantity end
-    end)
-    _hbConns.eq = Packets.ToolEquipped.listen(function(slot)
-        S.EquippedSlot = slot
-    end)
-    _hbConns.uneq = Packets.ToolUnequipped.listen(function(slot)
-        if S.EquippedSlot == slot then S.EquippedSlot = nil end
-    end)
-    _hbConns.swap = Packets.ToolSwapped.listen(function(p)
-        S.Hotbar[p.key1], S.Hotbar[p.key2] = S.Hotbar[p.key2], S.Hotbar[p.key1]
-        if S.EquippedSlot == p.key1 then S.EquippedSlot = p.key2
-        elseif S.EquippedSlot == p.key2 then S.EquippedSlot = p.key1 end
-    end)
-end)
-
-local function hotbarHasChosenTool()
-    for slot, info in pairs(S.Hotbar) do
-        local n = info.itemID and idToName(info.itemID)
-        if n and isChosenToolName(n) then
-            return true, slot
-        end
+local function toolbarFindChosenSlot()
+    for slot, entry in pairs(getToolbar()) do
+        local name = entry and (entry.name or (entry.itemID and idToName(entry.itemID)))
+        if name == chosenName() then return slot end
     end
-    return false, nil
+    return nil
 end
 
-local function equippedIsChosenTool()
-    if not S.EquippedSlot then
-        local t = LocalPlayer.Character and LocalPlayer.Character:FindFirstChildOfClass("Tool")
-        if t and isChosenToolName(t.Name) then return true end
-        return false
-    end
-    local info = S.Hotbar[S.EquippedSlot]
-    if not info then return false end
-    local n = info.itemID and idToName(info.itemID)
-    return n and isChosenToolName(n) or false
-end
-
-local function inventoryHasChosenTool()
-    for _, data in pairs(GameUtil.getData().inventory) do
-        if data and data.name and isChosenToolName(data.name) then
-            return true
-        end
+local function equippedIsChosen()
+    local eq = getEquipped()
+    if type(eq) == "number" then
+        local e = getToolbar()[eq]
+        local nm = e and (e.name or (e.itemID and idToName(e.itemID)))
+        return nm == chosenName()
+    elseif type(eq) == "string" then
+        return eq == chosenName()
+    elseif type(eq) == "table" then
+        local nm = eq.name or (eq.itemID and idToName(eq.itemID))
+        return nm == chosenName()
     end
     return false
 end
 
+local function inventoryHasChosen()
+    for _, d in pairs(GameUtil.getData().inventory) do
+        if d and d.name == chosenName() then return true end
+    end
+    return false
+end
+
+local function qty(name)
+    local q = tonumber(select(1, GetQuantity(name)) or 0) or 0
+    return q
+end
+
 local function ensureMaterials()
-    local haveGold  = tonumber(GetQuantity("Gold") or 0) or 0
-    local haveCrys  = tonumber(GetQuantity("Crystal Chunk") or 0) or 0
-
-    local needGold  = math.max(0, CFG.TOOL_NEED_GOLD - haveGold)
-    local needCrys  = math.max(0, CFG.TOOL_NEED_CRYSTAL - haveCrys)
-
-    for i = 1, needGold do
-        Packets.PurchaseFromShop.send(CFG.GOLD_ID)
-        task.wait()
+    local g = qty("Gold")
+    local c = qty("Crystal Chunk")
+    for i = 1, math.max(0, NEED_GOLD - g) do
+        Packets.PurchaseFromShop.send(GOLD_ID); task.wait()
     end
-    for i = 1, needCrys do
-        Packets.PurchaseFromShop.send(CFG.CRYSTAL_ID)
-        task.wait()
+    for i = 1, math.max(0, NEED_CRYSTAL - c) do
+        Packets.PurchaseFromShop.send(CRYSTAL_ID); task.wait()
     end
 end
 
-local function moveToSlotAndEquip(name, targetSlot)
-    targetSlot = targetSlot or 1
-    local _, idx
-    for i, data in pairs(GameUtil.getData().inventory) do
-        if data and data.name == name then
-            idx = i
-            break
-        end
-    end
-    if not idx then return false end
-
-    Packets.MoveItem.send({ index = idx, slot = targetSlot })
-    task.wait(0.15)
-    Packets.EquipTool.send(targetSlot)
-    return true
-end
-
-local function craftChosenTool()
-    local craftID = nameToCraftID(S.retoolChoice)
-
+local function craftAndEquipFromHotbar()
     ensureMaterials()
 
-    local gOK = (tonumber(GetQuantity("Gold") or 0) or 0)   >= CFG.TOOL_NEED_GOLD
-    local cOK = (tonumber(GetQuantity("Crystal Chunk") or 0) or 0) >= CFG.TOOL_NEED_CRYSTAL
-    if not (gOK and cOK) then
-        Notify("Auto Retool", "Not enough materials after purchase.")
+    if qty("Gold") < NEED_GOLD or qty("Crystal Chunk") < NEED_CRYSTAL then
+        Notify("Auto Retool", "Missing mats (need 12 Gold + 3 Crystal).")
         return false
     end
 
-    Packets.CraftItem.send(craftID)
+    Packets.CraftItem.send(chosenCraftID())
     task.wait(0.5)
 
     local t0 = os.clock()
-    while os.clock() - t0 < 3 do
-        if inventoryHasChosenTool() then break end
+    local slot
+    repeat
+        slot = toolbarFindChosenSlot()
+        if slot then break end
         task.wait(0.1)
+    until os.clock() - t0 > 3
+
+    if not slot then
+        task.wait(0.3)
+        slot = toolbarFindChosenSlot()
     end
 
-    if not inventoryHasChosenTool() then
-        Notify("Auto Retool", "Craft did not appear in inventory.")
+    if slot then
+        Packets.EquipTool.send(slot)
+        return true
+    else
+        Notify("Auto Retool", "Crafted, but tool not found in hotbar.")
         return false
     end
-
-    moveToSlotAndEquip(S.retoolChoice, 1)
-    return true
 end
 
-local function noToolInHotbar()
-    local has, _ = hotbarHasChosenTool()
-    return not has and not inventoryHasChosenTool() and not equippedIsChosenTool()
+local function noChosenToolInHotbar()
+    return toolbarFindChosenSlot() == nil
 end
 
 local function autoRetoolLoop()
-    while S.autoRetoolEnabled do
-        local hasInHotbar = hotbarHasChosenTool()
-        if not equippedIsChosenTool() and not hasInHotbar and not inventoryHasChosenTool() then
-            craftChosenTool()
-        elseif not equippedIsChosenTool() and (hasInHotbar or inventoryHasChosenTool()) then
-            moveToSlotAndEquip(S.retoolChoice, 1)
+    while autoRetoolEnabled do
+        if not equippedIsChosen() then
+            local slot = toolbarFindChosenSlot()
+            if slot then
+                Packets.EquipTool.send(slot)
+            else
+                craftAndEquipFromHotbar()
+            end
         end
         task.wait(0.5)
     end
 end
+
 
 local Fluent = loadstring(game:HttpGet("https://github.com/dawid-scripts/Fluent/releases/latest/download/main.lua"))()
 local SaveManager = loadstring(game:HttpGet("https://raw.githubusercontent.com/dawid-scripts/Fluent/master/Addons/SaveManager.lua"))()
@@ -2529,7 +2487,7 @@ Tabs.GoldEXP:AddToggle("CaveNodeFarm", {
 --     end
 -- })
 
-Tabs.GoldEXP:AddToggle("AntS.farm", {
+Tabs.GoldEXP:AddToggle("Ant.farm", {
     Title = "Ant Farm",
     Default = false,
     Callback = function(value)
@@ -3132,12 +3090,12 @@ Tabs.Extra:AddToggle("TPDropToChestToggle", {
 
 Tabs.Extra:AddSection("Auto Retool")
 
-Tabs.Extra:AddDropdown("S.retoolChoice", {
+Tabs.Extra:AddDropdown("RetoolChoice", {
     Title = "Choose Tool",
     Values = { "God Axe", "God Pick" },
-    Default = S.retoolChoice,
+    Default = retoolChoice,
     Callback = function(v)
-        S.retoolChoice = v
+        retoolChoice = v
         Notify("Auto Retool", "Selected: " .. v)
     end
 })
@@ -3146,14 +3104,13 @@ Tabs.Extra:AddToggle("AutoRetool", {
     Title = "Auto Retool",
     Default = false,
     Callback = function(v)
-        S.autoRetoolEnabled = v
+        autoRetoolEnabled = v
         if v then
-            if S.retoolThread then pcall(task.cancel, S.retoolThread) end
-            S.retoolThread = task.spawn(autoRetoolLoop)
-            Notify("Auto Retool", "Enabled")
+            if retoolThread then pcall(task.cancel, retoolThread) end
+            retoolThread = task.spawn(autoRetoolLoop)
         else
-            if S.retoolThread then pcall(task.cancel, S.retoolThread); S.retoolThread = nil end
-            Notify("Auto Retool", "Disabled")
+            if retoolThread then pcall(task.cancel, retoolThread) end
+            retoolThread = nil
         end
     end
 })
