@@ -2317,20 +2317,21 @@ Tabs.Main:AddToggle("Run", {
         S.fruitRun = value
         if value then
             if not tweenEnabled or not S.farm.node then
-                S.farm.fruit = task.spawn(fruitFarm)
+                Threads.fruitFarm = task.spawn(fruitFarm)
             else
                 S.fruitRun = false
-                Notify("S.fruit S.farm", "tween already enabled on a different S.farm")
+                Notify("Fruit Farm", "tween already enabled on a different farm")
             end
-        elseif S.farm.fruit and pcall(task.cancel, S.farm.fruit) then
-            S.farm.fruit = nil
-            if tween2 then
-                tween2:Cancel()
-                tween2 = nil
+        else
+            if Threads.fruitFarm then
+                pcall(task.cancel, Threads.fruitFarm)
+                Threads.fruitFarm = nil
             end
+            if tween2 then tween2:Cancel(); tween2 = nil end
         end
     end
 })
+
 
 Tabs.Main:AddSection("Fruit Tracker")
 
@@ -2442,10 +2443,10 @@ Tabs.GoldEXP:AddToggle("RemoveLag", {
     end
 })
 
-Tabs.GoldEXP:AddSection("Gold/EXP S.farm")
+Tabs.GoldEXP:AddSection("Gold/EXP Farm")
 
-Tabs.GoldEXP:AddToggle("IceNodeS.farm", {
-    Title = "Ice Node S.farm",
+Tabs.GoldEXP:AddToggle("IceNodeFarm", {
+    Title = "Ice Node Farm",
     Default = false,
     Callback = function(value)
         S.icenodeRun = value
@@ -2458,15 +2459,15 @@ Tabs.GoldEXP:AddToggle("IceNodeS.farm", {
                         S.farm.node = task.spawn(IcenodeS.farm)
                     else
                         S.icenodeRun = false
-                        Notify("Gold S.farm", "Couldn't find your chest")
+                        Notify("Gold Farm", "Couldn't find your chest")
                     end
                 else
                     S.icenodeRun = false
-                    Notify("Gold S.farm", "You're far away from the S.farm area")
+                    Notify("Gold Farm", "You're far away from the Farm area")
                 end
             else
                 S.icenodeRun = false
-                Notify("Gold S.farm", "tween already enabled on a different S.farm")
+                Notify("Gold Farm", "tween already enabled on a different Farm")
             end
         elseif S.farm.node and pcall(task.cancel, S.farm.node) then
             S.farm.node = nil
@@ -2480,7 +2481,7 @@ Tabs.GoldEXP:AddToggle("IceNodeS.farm", {
     end
 })
 
-Tabs.GoldEXP:AddToggle("CaveNodeS.farm", {
+Tabs.GoldEXP:AddToggle("CaveNodeFarm", {
     Title = "Cave Node Farm",
     Default = false,
     Callback = function(value)
