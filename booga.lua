@@ -879,7 +879,7 @@ local function Icenodefarm()
                     tweeninfo = {MaxSpeed = Humanoid.WalkSpeed, CFrame = CFrame.new(n.Position)}
                     tween = TweenService:Create(
                         Root, 
-                        tweeninfo.new((Root.Position - n.Position).Magnitude / (tweeninfo.MaxSpeed * (tweenSpeed/10)), Enum.EasingStyle.Linear),
+                        TweenInfo.new((Root.Position - n.Position).Magnitude / (tweeninfo.MaxSpeed * (tweenSpeed/10)), Enum.EasingStyle.Linear),
                         {CFrame = tweeninfo.CFrame * CFrame.new(0, Root.Size.Y, 0)}
                     )
                     tween:Play()
@@ -926,7 +926,7 @@ local function Cavenodefarm()
                 Root.Anchored = false
                 for m, n in next, Path:GetWaypoints() do
                     tweeninfo = {MaxSpeed = Humanoid.WalkSpeed, CFrame = CFrame.new(n.Position)}
-                    tween = TweenService:Create(Root, tweeninfo.new((Root.Position - n.Position).Magnitude / (tweeninfo.MaxSpeed * (tweenSpeed/10)), Enum.EasingStyle.Linear), {CFrame = tweeninfo.CFrame * CFrame.new(0, Root.Size.Y, 0)})
+                    tween = TweenService:Create(Root, TweenInfo.new((Root.Position - n.Position).Magnitude / (tweeninfo.MaxSpeed * (tweenSpeed/10)), Enum.EasingStyle.Linear), {CFrame = tweeninfo.CFrame * CFrame.new(0, Root.Size.Y, 0)})
                     tween:Play()
                     repeat
                         tween.Completed:Wait()
@@ -954,7 +954,7 @@ local function Cavenodefarm()
                 Path:ComputeAsync(Root.Position, chest:GetPivot().Position)
                 for m, n in next, Path:GetWaypoints() do
                     tweeninfo = {MaxSpeed = Humanoid.WalkSpeed, CFrame = CFrame.new(n.Position)}
-                    tween = TweenService:Create(Root, tweeninfo.new((Root.Position - n.Position).Magnitude / (tweeninfo.MaxSpeed * (tweenSpeed/10)), Enum.EasingStyle.Linear), {CFrame = tweeninfo.CFrame * CFrame.new(0, Root.Size.Y, 0)})
+                    tween = TweenService:Create(Root, TweenInfo.new((Root.Position - n.Position).Magnitude / (tweeninfo.MaxSpeed * (tweenSpeed/10)), Enum.EasingStyle.Linear), {CFrame = tweeninfo.CFrame * CFrame.new(0, Root.Size.Y, 0)})
                     tween:Play()
                     repeat
                         tween.Completed:Wait()
@@ -1083,7 +1083,7 @@ local function autofarmPumpkin()
 
                 for x, v in next, deployable do
                     if not v.deployable:FindFirstChild("Seed") then
-                        tween2 = TweenService:Create(Root, tweeninfo.new(v.range / 20, Enum.EasingStyle.Linear, Enum.EasingDirection.InOut), {CFrame = v.deployable:GetPivot() * CFrame.new(0, 5, 0)})
+                        tween2 = TweenService:Create(Root, TweenInfo.new(v.range / 20, Enum.EasingStyle.Linear, Enum.EasingDirection.InOut), {CFrame = v.deployable:GetPivot() * CFrame.new(0, 5, 0)})
                         tween2:Play()
                         break
                     end
@@ -1127,7 +1127,7 @@ local function crewfarm()
                 for _, waypoint in pairs(Path:GetWaypoints()) do
                     if not success then break end
                     tweeninfo = {MaxSpeed = Humanoid.WalkSpeed, CFrame = CFrame.new(waypoint.Position)}
-                    tween = TweenService:Create(Root, tweeninfo.new((Root.Position - waypoint.Position).Magnitude / (tweeninfo.MaxSpeed * (tweenSpeed/10)), Enum.EasingStyle.Linear), {CFrame = tweeninfo.CFrame * CFrame.new(0, Root.Size.Y, 0)})
+                    tween = TweenService:Create(Root, TweenInfo.new((Root.Position - waypoint.Position).Magnitude / (tweeninfo.MaxSpeed * (tweenSpeed/10)), Enum.EasingStyle.Linear), {CFrame = tweeninfo.CFrame * CFrame.new(0, Root.Size.Y, 0)})
                     tween:Play()
                     local connection
                     connection = tween.Completed:Connect(function()
@@ -1205,7 +1205,7 @@ local function fruitFarm()
                 if v.deployable and not v.deployable:FindFirstChild("Seed") then
                     tween2 = TweenService:Create(
                         Root,
-                        tweeninfo.new(v.range / 20, Enum.EasingStyle.Linear, Enum.EasingDirection.InOut),
+                        TweenInfo.new(v.range / 20, Enum.EasingStyle.Linear, Enum.EasingDirection.InOut),
                         { CFrame = v.deployable:GetPivot() * CFrame.new(0, 5, 0) }
                     )
                     tween2:Play()
@@ -1439,7 +1439,7 @@ local function startTweening()
         if tweenConn then tweenConn:Disconnect(); tweenConn = nil end
         if tween then tween:Cancel(); tween = nil end
 
-        local ti = tweeninfo.new(duration, Enum.EasingStyle.Linear)
+        local ti = TweenInfo.new(duration, Enum.EasingStyle.Linear)
         tween = TweenService:Create(Root, ti, { CFrame = CFrame.new(targetPos) })
 
         local completed, restartToNext, rubberbanded = false, false, false
